@@ -1,5 +1,7 @@
 """Terminal UI for clipper"""
 
+import math
+import re
 import threading
 from pathlib import Path
 from textual.app import App, ComposeResult
@@ -183,8 +185,70 @@ class StatusLog(RichLog):
         super().__init__(markup=True, **kwargs)
 
 
+def _get_onboarded_path() -> Path:
+    """Get path to onboarding marker file"""
+    return Path.home() / ".config" / "clipper" / ".onboarded"
+
+
+def has_been_onboarded() -> bool:
+    """Check if user has seen the onboarding screen"""
+    return _get_onboarded_path().exists()
+
+
+def mark_onboarded():
+    """Mark that user has completed onboarding"""
+    path = _get_onboarded_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def shimmer_logo(logo: str, frame: int) -> Text:
+    """Apply a shimmer effect - a diagonal wave that sweeps across once"""
+    result = Text()
+    lines = logo.split('\n')
+
+    # Wave position moves diagonally across the logo
+    wave_pos = frame * 1.5  # Speed of the wave
+
+    for y, line in enumerate(lines):
+        pos = 0
+        x = 0  # Track visual character position
+        pattern = re.compile(r'\x1b\[38;2;(\d+);(\d+);(\d+)m(.)\x1b\[0m')
+
+        for match in pattern.finditer(line):
+            if match.start() > pos:
+                result.append(line[pos:match.start()])
+
+            r, g, b = int(match.group(1)), int(match.group(2)), int(match.group(3))
+            char = match.group(4)
+
+            # Diagonal wave: position based on x + y
+            char_pos = x + y * 0.5
+
+            # Calculate shimmer intensity based on distance from wave
+            distance = abs(char_pos - wave_pos)
+            brightness = max(0, 1.0 - distance * 0.12)  # Soft glow falloff
+
+            # Brighten the color
+            r = min(255, int(r + (255 - r) * brightness * 0.7))
+            g = min(255, int(g + (255 - g) * brightness * 0.7))
+            b = min(255, int(b + (255 - b) * brightness * 0.7))
+
+            result.append(char, style=f"rgb({r},{g},{b})")
+            pos = match.end()
+            x += 1
+
+        if pos < len(line):
+            result.append(line[pos:])
+
+        if y < len(lines) - 1:
+            result.append('\n')
+
+    return result
+
+
 class AboutScreen(Screen):
-    """About screen with animated logo"""
+    """About/onboarding screen with logo and quick start guide"""
 
     CSS = """
     AboutScreen {
@@ -193,30 +257,83 @@ class AboutScreen(Screen):
     }
 
     #about-container {
-        width: auto;
+        width: 80;
         height: auto;
-        padding: 2;
+        padding: 1 2;
+        background: $surface;
+    }
+
+    #top-row {
+        height: auto;
+        width: 100%;
+    }
+
+    #logo-column {
+        width: 34;
+        height: auto;
+        padding-right: 1;
+        border-right: tall $primary-darken-2;
     }
 
     #logo-display {
-        text-align: center;
+        width: auto;
+        height: auto;
     }
 
-    #about-text {
-        text-align: center;
-        margin-top: 1;
-        color: $text-muted;
+    #info-column {
+        width: 1fr;
+        height: 100%;
+        padding-left: 2;
     }
 
     #version-text {
-        text-align: center;
-        color: $success;
+        text-align: left;
     }
 
-    #dismiss-hint {
-        text-align: center;
-        margin-top: 2;
-        color: $text-disabled;
+    #tagline {
+        color: $text-muted;
+    }
+
+    #quickstart {
+        margin-top: 1;
+    }
+
+    #info-spacer {
+        height: 1fr;
+    }
+
+    #info-footer {
+        height: auto;
+        color: $text-muted;
+    }
+
+    /* Responsive classes applied programmatically */
+    .narrow #logo-column {
+        display: none;
+    }
+
+    .narrow #info-column {
+        padding-left: 0;
+    }
+
+    .wide #about-container {
+        width: 90;
+        padding: 2 3;
+    }
+
+    .wide #logo-column {
+        width: 38;
+        padding: 1;
+    }
+
+    .extra-wide #about-container {
+        width: 110;
+        padding: 3 4;
+    }
+
+    .extra-wide #logo-column {
+        width: 42;
+        padding: 2;
     }
     """
 
@@ -226,19 +343,119 @@ class AboutScreen(Screen):
         Binding("space", "dismiss", "Close", show=False),
     ]
 
+    def __init__(self, is_onboarding: bool = False):
+        super().__init__()
+        self.is_onboarding = is_onboarding
+        self._shimmer_frame = 0
+        self._shimmer_timer = None
+
     def compose(self) -> ComposeResult:
-        with Center():
-            with Container(id="about-container"):
-                yield Static(Text.from_ansi(LOGO_ASCII), id="logo-display")
-                yield Static("[bold green]clipper[/bold green]", id="version-text", markup=True)
-                yield Static("Video compression TUI • Drop, compress, share", id="about-text")
-                yield Static("made with [red]♥[/red] by [cyan]@arach[/cyan]", markup=True)
-                yield Static("[dim]Press any key to continue[/dim]", id="dismiss-hint", markup=True)
+        with Vertical(id="about-container"):
+            with Horizontal(id="top-row"):
+                # Left column: Logo
+                with Vertical(id="logo-column"):
+                    yield Static(Text.from_ansi(LOGO_ASCII), id="logo-display")
+
+                # Right column: Info + Quick Start + Footer
+                with Vertical(id="info-column"):
+                    yield Static("[bold green]clipper[/bold green] v0.1.0", id="version-text", markup=True)
+                    yield Static("Video compression TUI", id="tagline")
+                    yield Static("Drop, compress, share.", id="tagline2")
+
+                    quickstart = """
+[bold cyan]Quick Start[/bold cyan]
+  [yellow]w[/yellow]  Start watcher
+  [yellow]c[/yellow]  Compress video
+  [yellow]s[/yellow]  Share to clipboard
+  [yellow]e[/yellow]  Edit config
+
+[bold cyan]Presets[/bold cyan] (filename suffix)
+  [magenta]-social[/magenta]  50%, CRF 28
+  [magenta]-web[/magenta]     75%, CRF 23
+  [magenta]-archive[/magenta] 100%, CRF 18
+  [magenta]-tiny[/magenta]    25%, CRF 32"""
+                    yield Static(quickstart, id="quickstart", markup=True)
+
+                    # Spacer pushes footer to bottom
+                    yield Static("", id="info-spacer")
+
+                    # Footer at bottom
+                    if self.is_onboarding:
+                        yield Static("made with [red]♥[/red] by [cyan]@arach[/cyan]\n[bold]Press any key to get started[/bold]", id="info-footer", markup=True)
+                    else:
+                        yield Static("made with [red]♥[/red] by [cyan]@arach[/cyan]\n[dim]Press any key to continue[/dim]", id="info-footer", markup=True)
+
+    def on_mount(self):
+        """Start shimmer animation"""
+        self._shimmer_timer = self.set_interval(1/15, self._update_shimmer)
+        self._update_responsive()
+
+    def _schedule_next_shimmer(self):
+        """Schedule another shimmer in 2 minutes"""
+        self.set_timer(120, self._restart_shimmer)
+
+    def _restart_shimmer(self):
+        """Restart the shimmer animation"""
+        self._shimmer_frame = 0
+        self._shimmer_timer = self.set_interval(1/15, self._update_shimmer)
+
+    def on_resize(self, event):
+        """Update responsive classes on resize"""
+        self._update_responsive()
+
+    def _update_responsive(self):
+        """Apply responsive CSS classes based on terminal width"""
+        width = self.app.size.width
+        container = self.query_one("#about-container")
+
+        # Remove all responsive classes
+        container.remove_class("narrow", "wide", "extra-wide")
+
+        # Apply appropriate class
+        if width < 70:
+            container.add_class("narrow")
+        elif width > 130:
+            container.add_class("extra-wide")
+        elif width > 100:
+            container.add_class("wide")
+
+    def _update_shimmer(self):
+        """Update shimmer animation frame"""
+        self._shimmer_frame += 1
+
+        # Stop after wave passes through (~35 frames for full diagonal sweep)
+        if self._shimmer_frame > 35:
+            if self._shimmer_timer:
+                self._shimmer_timer.stop()
+                self._shimmer_timer = None
+            # Set final static logo
+            try:
+                logo_display = self.query_one("#logo-display", Static)
+                logo_display.update(Text.from_ansi(LOGO_ASCII))
+            except Exception:
+                pass
+            # Schedule next shimmer in 2 minutes
+            self._schedule_next_shimmer()
+            return
+
+        try:
+            logo_display = self.query_one("#logo-display", Static)
+            logo_display.update(shimmer_logo(LOGO_ASCII, self._shimmer_frame))
+        except Exception:
+            pass  # Screen might be closing
 
     def action_dismiss(self):
+        if self._shimmer_timer:
+            self._shimmer_timer.stop()
+        if self.is_onboarding:
+            mark_onboarded()
         self.app.pop_screen()
 
     def on_key(self, event):
+        if self._shimmer_timer:
+            self._shimmer_timer.stop()
+        if self.is_onboarding:
+            mark_onboarded()
         self.app.pop_screen()
 
 
@@ -581,6 +798,7 @@ class VidToolsApp(App):
         Binding("w", "toggle_watch", "Watch"),
         Binding("e", "open_config", "Config"),
         Binding("a", "about", "About"),
+        Binding("l", "copy_log", "Copy Log"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
     ]
 
@@ -592,6 +810,13 @@ class VidToolsApp(App):
         self.watch_folders: WatchFolders | None = None
         self._last_escape: float = 0
         self._last_output: Path | None = None
+        self._log_history: list[str] = []
+
+    def write_log(self, message: str):
+        """Write to log panel and keep history"""
+        self._log_history.append(message)
+        log_widget = self.query_one("#log", StatusLog)
+        log_widget.write(message)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -628,12 +853,18 @@ class VidToolsApp(App):
     def on_mount(self):
         self.title = "clipper"
         self.sub_title = "video compression utility"
-        log = self.query_one("#log", StatusLog)
+        # Start unfocused so keybindings are discoverable (defer to after render)
+        self.call_later(self.set_focus, None)
+
+        # Show onboarding splash for first-time users
+        if not has_been_onboarded():
+            self.call_later(self.push_screen, AboutScreen(is_onboarding=True))
+
         config = get_config()
-        log.write("[bold cyan]clipper[/bold cyan] v0.1.0")
-        log.write(f"[dim]Config: {get_config_path()}[/dim]")
-        log.write(f"[dim]Watch folder: {config.folders.watch_base}[/dim]")
-        log.write(f"[dim]Presets: {', '.join(PRESETS.keys())} | Press [bold]e[/bold] to edit config[/dim]")
+        self.write_log("[bold cyan]clipper[/bold cyan] v0.1.0")
+        self.write_log(f"[dim]Config: {get_config_path()}[/dim]")
+        self.write_log(f"[dim]Watch folder: {config.folders.watch_base}[/dim]")
+        self.write_log(f"[dim]Presets: {', '.join(PRESETS.keys())} | Press [bold]e[/bold] to edit config[/dim]")
 
     def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "load-btn":
@@ -648,6 +879,27 @@ class VidToolsApp(App):
     def on_input_submitted(self, event: Input.Submitted):
         if event.input.id == "file-input":
             self.action_load_video()
+
+    def on_paste(self, event) -> None:
+        """Handle drag & drop / paste of file paths"""
+        text = event.text.strip()
+
+        # Clean up the path (remove quotes, handle escapes)
+        if text.startswith(("'", '"')) and text.endswith(("'", '"')):
+            text = text[1:-1]
+        text = text.replace("\\ ", " ")  # Handle escaped spaces
+
+        # Check if it looks like a video file
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv', '.flv'}
+        path = Path(text)
+
+        if path.suffix.lower() in video_extensions and path.exists():
+            # Put path in input and load it
+            file_input = self.query_one("#file-input", Input)
+            file_input.value = str(path)
+            self.action_load_video()
+            event.prevent_default()
+        # Otherwise let normal paste behavior happen
 
     def on_select_changed(self, event: Select.Changed):
         if event.select.id == "preset-select":
@@ -664,43 +916,60 @@ class VidToolsApp(App):
             return
 
         path = Path(path_str).expanduser().resolve()
-        log = self.query_one("#log", StatusLog)
 
         if not path.exists():
-            log.write(f"[red]Error:[/red] File not found: {path}")
+            self.write_log(f"[red]Error:[/red] File not found: {path}")
             return
 
-        try:
-            log.write(f"[cyan]Probing:[/cyan] {path.name}")
-            self.video_info = probe_video(path)
+        self.write_log(f"[cyan]Probing:[/cyan] {path.name}...")
+        load_btn = self.query_one("#load-btn", Button)
+        load_btn.disabled = True
+        load_btn.label = "Loading..."
 
-            # Auto-detect preset from filename
-            detected = detect_preset_from_filename(path)
-            if detected:
-                self.selected_preset = detected
-                select = self.query_one("#preset-select", Select)
-                select.value = detected.name
-                log.write(f"[magenta]Preset detected:[/magenta] {detected.name}")
+        def do_probe():
+            try:
+                info = probe_video(path)
 
-            info_panel = self.query_one("#info-panel", VideoInfoPanel)
-            info_panel.update_info(self.video_info, self.selected_preset)
+                def finish():
+                    self.video_info = info
 
-            output_panel = self.query_one("#output-panel", OutputPanel)
-            output_panel.clear()
+                    # Auto-detect preset from filename
+                    detected = detect_preset_from_filename(path)
+                    if detected:
+                        self.selected_preset = detected
+                        select = self.query_one("#preset-select", Select)
+                        select.value = detected.name
+                        self.write_log(f"[magenta]Preset detected:[/magenta] {detected.name}")
 
-            compress_btn = self.query_one("#compress-btn", Button)
-            compress_btn.disabled = False
+                    info_panel = self.query_one("#info-panel", VideoInfoPanel)
+                    info_panel.update_info(self.video_info, self.selected_preset)
 
-            log.write(f"[green]Loaded:[/green] {self.video_info.dimensions}, {self.video_info.size_mb:.1f} MB")
+                    output_panel = self.query_one("#output-panel", OutputPanel)
+                    output_panel.clear()
 
-        except Exception as e:
-            log.write(f"[red]Error:[/red] {e}")
+                    compress_btn = self.query_one("#compress-btn", Button)
+                    compress_btn.disabled = False
+
+                    self.write_log(f"[green]Loaded:[/green] {info.dimensions}, {info.size_mb:.1f} MB")
+                    load_btn.disabled = False
+                    load_btn.label = "Load"
+
+                self.call_from_thread(finish)
+
+            except Exception as e:
+                def on_error():
+                    self.write_log(f"[red]Error:[/red] {e}")
+                    load_btn.disabled = False
+                    load_btn.label = "Load"
+                self.call_from_thread(on_error)
+
+        thread = threading.Thread(target=do_probe, daemon=True)
+        thread.start()
 
     def action_compress(self):
         if not self.video_info:
             return
 
-        log = self.query_one("#log", StatusLog)
         progress_container = self.query_one("#progress-container")
         progress = self.query_one("#progress", ProgressBar)
         compress_btn = self.query_one("#compress-btn", Button)
@@ -710,8 +979,8 @@ class VidToolsApp(App):
         progress.update(total=100, progress=0)
 
         preset = self.selected_preset
-        log.write(f"[yellow]Compressing:[/yellow] {self.video_info.path.name}")
-        log.write(f"[dim]  Preset: {preset.name} | Scale: {preset.scale*100:.0f}% | CRF: {preset.crf}[/dim]")
+        self.write_log(f"[yellow]Compressing:[/yellow] {self.video_info.path.name}")
+        self.write_log(f"[dim]  Preset: {preset.name} | Scale: {preset.scale*100:.0f}% | CRF: {preset.crf}[/dim]")
 
         def on_progress(p: float):
             self.call_from_thread(progress.update, progress=p * 100)
@@ -735,8 +1004,8 @@ class VidToolsApp(App):
                         result.output_path,
                         preset.name,
                     )
-                    log.write(f"[green]Done![/green] {result.output_path}")
-                    log.write(f"[green]Reduced:[/green] {result.reduction_percent:.1f}%")
+                    self.write_log(f"[green]Done![/green] {result.output_path}")
+                    self.write_log(f"[green]Reduced:[/green] {result.reduction_percent:.1f}%")
                     compress_btn.disabled = False
                     # Enable share button
                     self._last_output = result.output_path
@@ -748,7 +1017,7 @@ class VidToolsApp(App):
             except Exception as e:
                 def error():
                     progress_container.remove_class("active")
-                    log.write(f"[red]Error:[/red] {e}")
+                    self.write_log(f"[red]Error:[/red] {e}")
                     compress_btn.disabled = False
 
                 self.call_from_thread(error)
@@ -757,7 +1026,6 @@ class VidToolsApp(App):
         thread.start()
 
     def action_toggle_watch(self):
-        log = self.query_one("#log", StatusLog)
         watch_btn = self.query_one("#watch-btn", Button)
         queue_panel = self.query_one("#queue-panel", QueuePanel)
 
@@ -765,7 +1033,7 @@ class VidToolsApp(App):
             # Stop watcher
             self.watcher.stop()
             watch_btn.label = "Start Watcher"
-            log.write("[yellow]Watcher stopped[/yellow]")
+            self.write_log("[yellow]Watcher stopped[/yellow]")
         else:
             # Start watcher
             config = get_config()
@@ -776,7 +1044,7 @@ class VidToolsApp(App):
             def on_job_added(job: Job):
                 def update():
                     queue_panel.update_jobs(self.watcher.jobs)
-                    log.write(f"[cyan]Queued:[/cyan] {job.input_path.name} [{job.preset.name}]")
+                    self.write_log(f"[cyan]Queued:[/cyan] {job.input_path.name} [{job.preset.name}]")
                 self.call_from_thread(update)
 
             def on_job_updated(job: Job):
@@ -788,9 +1056,9 @@ class VidToolsApp(App):
                 def update():
                     queue_panel.update_jobs(self.watcher.jobs)
                     if job.status == JobStatus.DONE and job.result:
-                        log.write(f"[green]Completed:[/green] {job.result.output_path.name} (-{job.result.reduction_percent:.1f}%)")
+                        self.write_log(f"[green]Completed:[/green] {job.result.output_path.name} (-{job.result.reduction_percent:.1f}%)")
                     elif job.status == JobStatus.FAILED:
-                        log.write(f"[red]Failed:[/red] {job.input_path.name} - {job.error}")
+                        self.write_log(f"[red]Failed:[/red] {job.input_path.name} - {job.error}")
                 self.call_from_thread(update)
 
             self.watcher = Watcher(
@@ -802,9 +1070,9 @@ class VidToolsApp(App):
             self.watcher.start()
 
             watch_btn.label = "Stop Watcher"
-            log.write(f"[green]Watcher started[/green]")
-            log.write(f"[dim]Inbox: {self.watch_folders.inbox}[/dim]")
-            log.write(f"[dim]Output: {self.watch_folders.done}[/dim]")
+            self.write_log(f"[green]Watcher started[/green]")
+            self.write_log(f"[dim]Inbox: {self.watch_folders.inbox}[/dim]")
+            self.write_log(f"[dim]Output: {self.watch_folders.done}[/dim]")
 
     def action_unfocus(self):
         """Return to command mode, double-tap to quit"""
@@ -831,13 +1099,33 @@ class VidToolsApp(App):
         # Copy to clipboard using pbcopy (macOS)
         subprocess.run(["pbcopy"], input=path_str.encode(), check=True)
 
-        log = self.query_one("#log", StatusLog)
-        log.write(f"[cyan]Copied to clipboard:[/cyan] {self._last_output.name}")
+        self.write_log(f"[cyan]Copied to clipboard:[/cyan] {self._last_output.name}")
         self.notify("Path copied! Ready to paste.", severity="information")
+
+    def action_copy_log(self):
+        """Copy log contents to clipboard"""
+        import subprocess
+        import re
+
+        if not self._log_history:
+            self.notify("No logs to copy", severity="warning")
+            return
+
+        plain_logs = []
+        for line in self._log_history:
+            # Remove Rich markup tags like [bold], [/bold], [red], [dim], etc.
+            # Match [word] or [/word] or [word attr] patterns
+            plain = re.sub(r'\[/?[\w\s]+\]', '', line)
+            plain_logs.append(plain)
+
+        text = '\n'.join(plain_logs)
+        subprocess.run(["pbcopy"], input=text.encode(), check=True)
+        self.notify(f"Copied {len(self._log_history)} log lines!", severity="information")
 
     def action_clear_log(self):
         log = self.query_one("#log", StatusLog)
         log.clear()
+        self._log_history.clear()
 
     def action_open_config(self):
         """Open config editor screen"""

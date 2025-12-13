@@ -8,7 +8,7 @@ A slick TUI for compressing videos and copying them to your clipboard. Drop, com
 <img src="logo-ascii.svg" alt="clipper logo" width="100%">
 </td>
 <td width="55%">
-<img src="tui.png" alt="clipper TUI" width="100%">
+<img src="clipper-tui.png" alt="clipper TUI" width="100%">
 </td>
 </tr>
 </table>

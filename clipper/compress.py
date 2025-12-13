@@ -117,8 +117,16 @@ def probe_video(path: Path) -> VideoInfo:
         "-show_streams", "-show_format",
         str(path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    data = json.loads(result.stdout)
+    # Use Popen with start_new_session to avoid signal issues in threads
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True
+    )
+    stdout, stderr = process.communicate(timeout=30)
+    data = json.loads(stdout)
 
     video_stream = next(s for s in data["streams"] if s["codec_type"] == "video")
 
@@ -204,12 +212,18 @@ def compress(
     )
 
     if on_progress and process.stdout:
+        import time
+        last_update = 0
         for line in process.stdout:
             if line.startswith("out_time_ms="):
                 try:
                     time_ms = int(line.split("=")[1])
                     progress = min(1.0, (time_ms / 1_000_000) / duration)
-                    on_progress(progress)
+                    # Throttle updates to ~10fps max
+                    now = time.time()
+                    if now - last_update > 0.1:
+                        on_progress(progress)
+                        last_update = now
                 except (ValueError, ZeroDivisionError):
                     pass
 

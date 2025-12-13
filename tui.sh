@@ -1,4 +1,3 @@
 #!/bin/bash
 cd "$(dirname "$0")"
-source .venv/bin/activate
-clipper "$@"
+PYTHONPATH="." .venv/bin/python -m clipper.tui "$@"

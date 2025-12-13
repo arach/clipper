@@ -45,6 +45,7 @@ from .compress import (
 )
 from .watcher import Watcher, WatchFolders, Job, JobStatus
 from .config import get_config, get_config_path, reload_config
+from .history import load_history, add_to_history, HistoryEntry
 
 
 class VideoInfoPanel(Static):
@@ -693,6 +694,120 @@ notifications = {str(notifications).lower()}
         self.app.pop_screen()
 
 
+class HistoryScreen(Screen):
+    """Recent compressions history"""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("q", "close", "Close"),
+    ]
+
+    CSS = """
+    HistoryScreen {
+        align: center middle;
+    }
+
+    #history-container {
+        width: 90%;
+        height: 80%;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #history-title {
+        text-align: center;
+        text-style: bold;
+        padding-bottom: 1;
+    }
+
+    #history-list {
+        height: 1fr;
+    }
+
+    .history-item {
+        height: 3;
+        padding: 0 1;
+        margin-bottom: 1;
+        background: $surface-darken-1;
+    }
+
+    .history-item:hover {
+        background: $primary-darken-1;
+    }
+
+    .history-item:focus {
+        background: $primary;
+    }
+
+    .history-filename {
+        width: 1fr;
+    }
+
+    .history-meta {
+        width: auto;
+        color: $text-muted;
+    }
+
+    #history-hint {
+        text-align: center;
+        color: $text-muted;
+        padding-top: 1;
+    }
+
+    #history-empty {
+        text-align: center;
+        color: $text-muted;
+        padding: 2;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        history = load_history()
+
+        with Container(id="history-container"):
+            yield Static("[b]Recent Compressions[/b]", id="history-title")
+
+            if not history:
+                yield Static("No compressions yet. Get clipping!", id="history-empty")
+            else:
+                with ScrollableContainer(id="history-list"):
+                    for i, entry in enumerate(history):
+                        output_path = Path(entry.output_path)
+                        exists = output_path.exists()
+                        icon = "[green]●[/green]" if exists else "[dim]○[/dim]"
+                        size_mb = entry.compressed_size / (1024 * 1024)
+
+                        with Horizontal(classes="history-item", id=f"history-{i}"):
+                            yield Static(
+                                f"{icon} {output_path.name}",
+                                classes="history-filename"
+                            )
+                            yield Static(
+                                f"[dim]{size_mb:.1f}MB · {entry.preset} · {entry.time_ago}[/dim]",
+                                classes="history-meta"
+                            )
+
+            yield Static("[dim]Click to copy path · Esc to close[/dim]", id="history-hint")
+
+    def on_click(self, event) -> None:
+        """Handle clicks on history items"""
+        # Find which history item was clicked
+        for widget in self.query(".history-item"):
+            if widget.region.contains(event.x, event.y):
+                idx = int(widget.id.split("-")[1])
+                history = load_history()
+                if idx < len(history):
+                    import subprocess
+                    path = history[idx].output_path
+                    subprocess.run(["pbcopy"], input=path.encode(), check=True)
+                    self.app.notify(f"Copied: {Path(path).name}", severity="information")
+                break
+
+    def action_close(self):
+        self.app.pop_screen()
+
+
 class VidToolsApp(App):
     """Video compression TUI"""
 
@@ -798,6 +913,7 @@ class VidToolsApp(App):
         Binding("w", "toggle_watch", "Watch"),
         Binding("e", "open_config", "Config"),
         Binding("a", "about", "About"),
+        Binding("h", "history", "History"),
         Binding("l", "copy_log", "Copy Log"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
     ]
@@ -993,6 +1109,16 @@ class VidToolsApp(App):
                     on_progress=on_progress,
                 )
 
+                # Save to history
+                add_to_history(
+                    input_path=result.input_path,
+                    output_path=result.output_path,
+                    original_size=result.original_size,
+                    compressed_size=result.compressed_size,
+                    reduction_percent=result.reduction_percent,
+                    preset=preset.name,
+                )
+
                 def finish():
                     progress.update(progress=100)
                     progress_container.remove_class("active")
@@ -1134,6 +1260,10 @@ class VidToolsApp(App):
     def action_about(self):
         """Show about screen with logo"""
         self.push_screen(AboutScreen())
+
+    def action_history(self):
+        """Show compression history"""
+        self.push_screen(HistoryScreen())
 
     def on_unmount(self):
         if self.watcher:

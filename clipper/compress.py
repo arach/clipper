@@ -184,8 +184,8 @@ def compress(
     info = probe_video(input_path)
     duration = info.duration
 
-    # Build ffmpeg command
-    scale_filter = f"scale=iw*{_scale}:-2" if _scale != 1.0 else None
+    # Build ffmpeg command - ensure both dimensions are divisible by 2 for h264
+    scale_filter = f"scale=trunc(iw*{_scale}/2)*2:trunc(ih*{_scale}/2)*2" if _scale != 1.0 else None
 
     cmd = ["ffmpeg", "-i", str(input_path)]
 
@@ -208,21 +208,26 @@ def compress(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        universal_newlines=True
+        bufsize=1,
+        universal_newlines=True,
+        start_new_session=True,
     )
 
     if on_progress and process.stdout:
         import time
         last_update = 0
-        for line in process.stdout:
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
             if line.startswith("out_time_ms="):
                 try:
                     time_ms = int(line.split("=")[1])
-                    progress = min(1.0, (time_ms / 1_000_000) / duration)
+                    prog = min(1.0, (time_ms / 1_000_000) / duration)
                     # Throttle updates to ~10fps max
                     now = time.time()
                     if now - last_update > 0.1:
-                        on_progress(progress)
+                        on_progress(prog)
                         last_update = now
                 except (ValueError, ZeroDivisionError):
                     pass

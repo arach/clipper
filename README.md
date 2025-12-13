@@ -4,10 +4,10 @@ A slick TUI for compressing videos and copying them to your clipboard. Drop, com
 
 <table>
 <tr>
-<td width="45%">
-<img src="logo-ascii.svg" alt="clipper logo" width="100%">
+<td width="50%">
+<img src="tui.png" alt="clipper welcome screen" width="100%">
 </td>
-<td width="55%">
+<td width="50%">
 <img src="clipper-tui.png" alt="clipper TUI" width="100%">
 </td>
 </tr>
@@ -40,6 +40,7 @@ clip comp video.mp4
 |-----|--------|
 | `c` | Compress |
 | `s` | Share (copy path to clipboard) |
+| `h` | History (recent compressions) |
 | `w` | Toggle watcher |
 | `e` | Edit config |
 | `a` | About / help |

@@ -232,6 +232,7 @@ class AboutScreen(Screen):
                 yield Static(Text.from_ansi(LOGO_ASCII), id="logo-display")
                 yield Static("[bold green]clipper[/bold green]", id="version-text", markup=True)
                 yield Static("Video compression TUI • Drop, compress, share", id="about-text")
+                yield Static("made with [red]♥[/red] by [cyan]@arach[/cyan]", markup=True)
                 yield Static("[dim]Press any key to continue[/dim]", id="dismiss-hint", markup=True)
 
     def action_dismiss(self):

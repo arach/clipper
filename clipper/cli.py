@@ -1,4 +1,4 @@
-"""Command-line interface for vidtools"""
+"""Command-line interface for clipper"""
 
 import typer
 from pathlib import Path

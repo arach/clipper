@@ -1,15 +1,15 @@
-"""Configuration management for vidtools"""
+"""Configuration management for clipper"""
 
 import tomllib
 from pathlib import Path
 from dataclasses import dataclass, field
 
 
-CONFIG_DIR = Path.home() / ".config" / "vidtools"
+CONFIG_DIR = Path.home() / ".config" / "clipper"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
 DEFAULT_CONFIG = """\
-# vidtools configuration
+# clipper configuration
 
 [folders]
 # Base folder for watch mode

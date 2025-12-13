@@ -1,4 +1,4 @@
-"""Terminal UI for vidtools"""
+"""Terminal UI for clipper"""
 
 import threading
 from pathlib import Path
@@ -336,7 +336,7 @@ class ConfigScreen(Screen):
         delete_source = self.query_one("#delete-source-switch", Switch).value
         notifications = self.query_one("#notifications-switch", Switch).value
 
-        content = f'''# vidtools configuration
+        content = f'''# clipper configuration
 
 [folders]
 watch_base = "{watch_base}"
@@ -366,7 +366,7 @@ notifications = {str(notifications).lower()}
             delete_source = self.query_one("#delete-source-switch", Switch).value
             notifications = self.query_one("#notifications-switch", Switch).value
 
-            config_content = f'''# vidtools configuration
+            config_content = f'''# clipper configuration
 
 [folders]
 watch_base = "{watch_base}"
@@ -496,6 +496,7 @@ class VidToolsApp(App):
         Binding("escape", "unfocus", "Unfocus", show=False),
         Binding("q", "quit", "Quit"),
         Binding("c", "compress", "Compress"),
+        Binding("s", "share", "Share"),
         Binding("w", "toggle_watch", "Watch"),
         Binding("e", "open_config", "Config"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
@@ -508,6 +509,7 @@ class VidToolsApp(App):
         self.watcher: Watcher | None = None
         self.watch_folders: WatchFolders | None = None
         self._last_escape: float = 0
+        self._last_output: Path | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -533,6 +535,7 @@ class VidToolsApp(App):
 
             with Horizontal(id="button-row"):
                 yield Button("Compress", id="compress-btn", variant="success", disabled=True)
+                yield Button("Ready to share?", id="share-btn", variant="primary", disabled=True)
                 yield Button("Start Watcher", id="watch-btn", variant="warning")
 
             with Container(id="log-container"):
@@ -541,11 +544,11 @@ class VidToolsApp(App):
         yield Footer()
 
     def on_mount(self):
-        self.title = "vidtools"
+        self.title = "clipper"
         self.sub_title = "video compression utility"
         log = self.query_one("#log", StatusLog)
         config = get_config()
-        log.write("[bold cyan]vidtools[/bold cyan] v0.1.0")
+        log.write("[bold cyan]clipper[/bold cyan] v0.1.0")
         log.write(f"[dim]Config: {get_config_path()}[/dim]")
         log.write(f"[dim]Watch folder: {config.folders.watch_base}[/dim]")
         log.write(f"[dim]Presets: {', '.join(PRESETS.keys())} | Press [bold]e[/bold] to edit config[/dim]")
@@ -555,6 +558,8 @@ class VidToolsApp(App):
             self.action_load_video()
         elif event.button.id == "compress-btn":
             self.action_compress()
+        elif event.button.id == "share-btn":
+            self.action_share()
         elif event.button.id == "watch-btn":
             self.action_toggle_watch()
 
@@ -651,6 +656,10 @@ class VidToolsApp(App):
                     log.write(f"[green]Done![/green] {result.output_path}")
                     log.write(f"[green]Reduced:[/green] {result.reduction_percent:.1f}%")
                     compress_btn.disabled = False
+                    # Enable share button
+                    self._last_output = result.output_path
+                    share_btn = self.query_one("#share-btn", Button)
+                    share_btn.disabled = False
 
                 self.call_from_thread(finish)
 
@@ -727,6 +736,22 @@ class VidToolsApp(App):
 
         self._last_escape = now
         self.set_focus(None)
+
+    def action_share(self):
+        """Copy output path to clipboard"""
+        if not self._last_output:
+            self.notify("Nothing to share yet", severity="warning")
+            return
+
+        import subprocess
+        path_str = str(self._last_output)
+
+        # Copy to clipboard using pbcopy (macOS)
+        subprocess.run(["pbcopy"], input=path_str.encode(), check=True)
+
+        log = self.query_one("#log", StatusLog)
+        log.write(f"[cyan]Copied to clipboard:[/cyan] {self._last_output.name}")
+        self.notify("Path copied! Ready to paste.", severity="information")
 
     def action_clear_log(self):
         log = self.query_one("#log", StatusLog)

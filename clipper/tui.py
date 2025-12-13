@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.screen import Screen
-from textual.containers import Container, Horizontal, Vertical, ScrollableContainer
+from textual.containers import Container, Horizontal, Vertical, ScrollableContainer, Center
 from textual.widgets import (
     Header, Footer, Static, Button, ProgressBar,
     Input, Label, DataTable, RichLog, Select, Switch, TextArea
@@ -13,6 +13,28 @@ from textual.binding import Binding
 from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
+
+# ASCII logo with ANSI colors (green scissors)
+LOGO_ASCII = """\
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;13;45;22m.\x1b[0m\x1b[38;2;11;47;21m.\x1b[0m\x1b[38;2;0;11;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;11;0m \x1b[0m\x1b[38;2;10;42;18m.\x1b[0m\x1b[38;2;7;36;14m \x1b[0m\x1b[38;2;0;11;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;26;79;43m.\x1b[0m\x1b[38;2;35;128;67m;\x1b[0m\x1b[38;2;21;82;41m.\x1b[0m\x1b[38;2;0;11;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;19;70;35m.\x1b[0m\x1b[38;2;28;110;57m,\x1b[0m\x1b[38;2;15;61;29m.\x1b[0m\x1b[38;2;0;10;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;25;76;41m.\x1b[0m\x1b[38;2;34;127;67m;\x1b[0m\x1b[38;2;33;125;66m;\x1b[0m\x1b[38;2;26;97;50m'\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;26;90;47m'\x1b[0m\x1b[38;2;23;101;51m'\x1b[0m\x1b[38;2;30;118;62m,\x1b[0m\x1b[38;2;14;62;29m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;12;42;19m.\x1b[0m\x1b[38;2;42;142;78m:\x1b[0m\x1b[38;2;33;123;64m;\x1b[0m\x1b[38;2;31;120;63m,\x1b[0m\x1b[38;2;23;91;46m'\x1b[0m\x1b[38;2;28;92;50m'\x1b[0m\x1b[38;2;25;104;54m'\x1b[0m\x1b[38;2;28;113;59m,\x1b[0m\x1b[38;2;33;124;65m;\x1b[0m\x1b[38;2;11;49;22m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;44;139;78m:\x1b[0m\x1b[38;2;32;122;64m;\x1b[0m\x1b[38;2;29;114;59m,\x1b[0m\x1b[38;2;25;106;54m,\x1b[0m\x1b[38;2;30;102;55m'\x1b[0m\x1b[38;2;31;118;62m,\x1b[0m\x1b[38;2;28;112;58m,\x1b[0m\x1b[38;2;33;125;65m;\x1b[0m\x1b[38;2;34;125;66m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;30;93;51m'\x1b[0m\x1b[38;2;32;121;63m;\x1b[0m\x1b[38;2;26;109;56m,\x1b[0m\x1b[38;2;22;94;48m'\x1b[0m\x1b[38;2;42;138;77m:\x1b[0m\x1b[38;2;29;114;59m,\x1b[0m\x1b[38;2;33;124;65m;\x1b[0m\x1b[38;2;37;134;71m;\x1b[0m\x1b[38;2;27;104;54m'\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;43;138;77m:\x1b[0m\x1b[38;2;33;122;64m;\x1b[0m\x1b[38;2;42;135;76m:\x1b[0m\x1b[38;2;32;121;63m;\x1b[0m\x1b[38;2;35;129;68m;\x1b[0m\x1b[38;2;37;133;70m;\x1b[0m\x1b[38;2;41;143;76m:\x1b[0m\x1b[38;2;13;53;24m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;24;73;40m.\x1b[0m\x1b[38;2;33;112;62m,\x1b[0m\x1b[38;2;69;204;115md\x1b[0m\x1b[38;2;47;155;84mc\x1b[0m\x1b[38;2;50;164;89mc\x1b[0m\x1b[38;2;25;92;47m'\x1b[0m\x1b[38;2;10;50;22m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;68;188;110mo\x1b[0m\x1b[38;2;54;170;93ml\x1b[0m\x1b[38;2;30;117;61m,\x1b[0m\x1b[38;2;36;127;67m;\x1b[0m\x1b[38;2;70;208;115md\x1b[0m\x1b[38;2;9;38;16m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;11;40;18m.\x1b[0m\x1b[38;2;63;174;102ml\x1b[0m\x1b[38;2;89;253;144m0\x1b[0m\x1b[38;2;82;237;133mk\x1b[0m\x1b[38;2;67;204;113md\x1b[0m\x1b[38;2;71;213;118mx\x1b[0m\x1b[38;2;69;207;115md\x1b[0m\x1b[38;2;24;80;40m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;19;58;30m.\x1b[0m\x1b[38;2;42;118;67m;\x1b[0m\x1b[38;2;66;183;106mo\x1b[0m\x1b[38;2;89;248;143mO\x1b[0m\x1b[38;2;87;251;141mO\x1b[0m\x1b[38;2;84;243;136mO\x1b[0m\x1b[38;2;79;232;129mk\x1b[0m\x1b[38;2;65;195;108md\x1b[0m\x1b[38;2;40;127;68m;\x1b[0m\x1b[38;2;36;118;63m;\x1b[0m\x1b[38;2;46;154;83mc\x1b[0m\x1b[38;2;39;136;73m:\x1b[0m\x1b[38;2;21;83;42m.\x1b[0m\x1b[38;2;10;46;20m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;35;98;56m'\x1b[0m\x1b[38;2;61;167;98ml\x1b[0m\x1b[38;2;86;231;137mk\x1b[0m\x1b[38;2;93;255;149m0\x1b[0m\x1b[38;2;91;255;146m0\x1b[0m\x1b[38;2;88;253;142mO\x1b[0m\x1b[38;2;85;246;138mO\x1b[0m\x1b[38;2;81;236;132mk\x1b[0m\x1b[38;2;75;223;124mx\x1b[0m\x1b[38;2;37;117;62m,\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;51;149;84mc\x1b[0m\x1b[38;2;65;198;109md\x1b[0m\x1b[38;2;55;177;96ml\x1b[0m\x1b[38;2;47;158;85mc\x1b[0m\x1b[38;2;39;139;74m:\x1b[0m\x1b[38;2;31;120;63m,\x1b[0m\x1b[38;2;25;104;53m'\x1b[0m\x1b[38;2;17;81;40m.\x1b[0m\x1b[38;2;10;56;25m.\x1b[0m\x1b[38;2;5;35;13m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;53;143;84m:\x1b[0m\x1b[38;2;76;205;122mx\x1b[0m\x1b[38;2;60;169;98ml\x1b[0m\x1b[38;2;56;160;91mc\x1b[0m\x1b[38;2;63;180;102mo\x1b[0m\x1b[38;2;81;230;130mk\x1b[0m\x1b[38;2;88;252;142mO\x1b[0m\x1b[38;2;84;244;136mO\x1b[0m\x1b[38;2;78;231;129mk\x1b[0m\x1b[38;2;71;214;119mx\x1b[0m\x1b[38;2;40;129;69m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;56;161;92ml\x1b[0m\x1b[38;2;63;193;106mo\x1b[0m\x1b[38;2;54;173;94ml\x1b[0m\x1b[38;2;45;151;81mc\x1b[0m\x1b[38;2;35;130;68m;\x1b[0m\x1b[38;2;24;100;51m'\x1b[0m\x1b[38;2;14;66;32m.\x1b[0m\x1b[38;2;9;51;23m.\x1b[0m\x1b[38;2;7;48;21m.\x1b[0m\x1b[38;2;7;52;23m.\x1b[0m\x1b[38;2;6;47;20m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;77;205;123mx\x1b[0m\x1b[38;2;30;91;49m'\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;32;99;52m'\x1b[0m\x1b[38;2;76;225;125mk\x1b[0m\x1b[38;2;70;211;117mx\x1b[0m\x1b[38;2;58;183;100mo\x1b[0m\x1b[38;2;11;48;22m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;22;67;36m.\x1b[0m\x1b[38;2;70;210;117mx\x1b[0m\x1b[38;2;58;184;101mo\x1b[0m\x1b[38;2;47;156;84mc\x1b[0m\x1b[38;2;15;59;28m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;6;50;22m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;57;150;90mc\x1b[0m\x1b[38;2;38;113;63m,\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;39;114;63m,\x1b[0m\x1b[38;2;60;189;104mo\x1b[0m\x1b[38;2;39;135;71m:\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;67;193;111md\x1b[0m\x1b[38;2;62;193;106mo\x1b[0m\x1b[38;2;31;107;56m,\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;18;87;43m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;54;146;86mc\x1b[0m\x1b[38;2;32;98;52m'\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;44;126;72m;\x1b[0m\x1b[38;2;45;153;83mc\x1b[0m\x1b[38;2;13;57;26m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;28;84;45m.\x1b[0m\x1b[38;2;67;204;113md\x1b[0m\x1b[38;2;43;141;76m:\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;14;55;25m.\x1b[0m\x1b[38;2;36;128;69m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;65;182;106mo\x1b[0m\x1b[38;2;21;69;35m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;8;32;13m \x1b[0m\x1b[38;2;40;117;66m;\x1b[0m\x1b[38;2;49;158;87mc\x1b[0m\x1b[38;2;14;62;30m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;31;98;52m'\x1b[0m\x1b[38;2;61;189;104mo\x1b[0m\x1b[38;2;35;118;63m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;29;88;49m'\x1b[0m\x1b[38;2;57;164;97ml\x1b[0m\x1b[38;2;6;37;15m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;34;104;56m,\x1b[0m\x1b[38;2;44;134;72m:\x1b[0m\x1b[38;2;42;131;70m;\x1b[0m\x1b[38;2;45;139;75m:\x1b[0m\x1b[38;2;48;148;80m:\x1b[0m\x1b[38;2;46;143;78m:\x1b[0m\x1b[38;2;21;79;40m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;7;33;12m \x1b[0m\x1b[38;2;26;89;45m'\x1b[0m\x1b[38;2;34;116;61m,\x1b[0m\x1b[38;2;29;104;54m,\x1b[0m\x1b[38;2;23;87;44m.\x1b[0m\x1b[38;2;25;91;46m'\x1b[0m\x1b[38;2;34;112;60m,\x1b[0m\x1b[38;2;23;78;41m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+"""
 
 from .compress import (
     probe_video, compress, VideoInfo,
@@ -159,6 +181,64 @@ class StatusLog(RichLog):
 
     def __init__(self, **kwargs):
         super().__init__(markup=True, **kwargs)
+
+
+class AboutScreen(Screen):
+    """About screen with animated logo"""
+
+    CSS = """
+    AboutScreen {
+        align: center middle;
+        background: $surface;
+    }
+
+    #about-container {
+        width: auto;
+        height: auto;
+        padding: 2;
+    }
+
+    #logo-display {
+        text-align: center;
+    }
+
+    #about-text {
+        text-align: center;
+        margin-top: 1;
+        color: $text-muted;
+    }
+
+    #version-text {
+        text-align: center;
+        color: $success;
+    }
+
+    #dismiss-hint {
+        text-align: center;
+        margin-top: 2;
+        color: $text-disabled;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+        Binding("enter", "dismiss", "Close", show=False),
+        Binding("space", "dismiss", "Close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Center():
+            with Container(id="about-container"):
+                yield Static(Text.from_ansi(LOGO_ASCII), id="logo-display")
+                yield Static("[bold green]clipper[/bold green]", id="version-text", markup=True)
+                yield Static("Video compression TUI • Drop, compress, share", id="about-text")
+                yield Static("[dim]Press any key to continue[/dim]", id="dismiss-hint", markup=True)
+
+    def action_dismiss(self):
+        self.app.pop_screen()
+
+    def on_key(self, event):
+        self.app.pop_screen()
 
 
 class ConfigScreen(Screen):
@@ -499,6 +579,7 @@ class VidToolsApp(App):
         Binding("s", "share", "Share"),
         Binding("w", "toggle_watch", "Watch"),
         Binding("e", "open_config", "Config"),
+        Binding("a", "about", "About"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
     ]
 
@@ -760,6 +841,10 @@ class VidToolsApp(App):
     def action_open_config(self):
         """Open config editor screen"""
         self.push_screen(ConfigScreen())
+
+    def action_about(self):
+        """Show about screen with logo"""
+        self.push_screen(AboutScreen())
 
     def on_unmount(self):
         if self.watcher:

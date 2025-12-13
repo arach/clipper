@@ -38,13 +38,16 @@ clip comp video.mp4
 
 | Key | Action |
 |-----|--------|
-| `e` | Edit config |
-| `w` | Toggle watcher |
 | `c` | Compress |
 | `s` | Share (copy path to clipboard) |
+| `w` | Toggle watcher |
+| `e` | Edit config |
+| `a` | About / help |
+| `l` | Copy logs to clipboard |
 | `Esc` | Unfocus / command mode |
-| `Esc Esc` | Quit |
 | `q` | Quit |
+
+**Tip:** Drag & drop video files directly into the TUI!
 
 ## Presets
 

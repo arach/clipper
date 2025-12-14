@@ -11,8 +11,12 @@ from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileMovedE
 
 from .compress import (
     compress,
+    convert_to_gif,
+    convert_to_loop,
     probe_video,
     detect_preset_from_filename,
+    detect_special_format,
+    parse_trim_from_filename,
     DEFAULT_PRESET,
     VideoInfo,
     CompressionResult,
@@ -36,6 +40,9 @@ class Job:
     result: CompressionResult | None = None
     error: str | None = None
     info: VideoInfo | None = None
+    special_format: str | None = None  # "gif" or "loop"
+    start_time: float | None = None  # Trim start in seconds
+    end_time: float | None = None  # Trim end in seconds
 
 
 @dataclass
@@ -123,6 +130,13 @@ class Watcher:
 
     def _on_new_file(self, path: Path):
         """Called when a new video appears in inbox"""
+        # Check for special format and trim points from filename
+        special_format, start_time, end_time = parse_trim_from_filename(path)
+
+        # If no special format found via parse, try simple detection
+        if special_format is None:
+            special_format = detect_special_format(path)
+
         preset = detect_preset_from_filename(path) or DEFAULT_PRESET
 
         try:
@@ -130,7 +144,14 @@ class Watcher:
         except Exception:
             info = None
 
-        job = Job(input_path=path, preset=preset, info=info)
+        job = Job(
+            input_path=path,
+            preset=preset,
+            info=info,
+            special_format=special_format,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
         with self._lock:
             self.jobs.append(job)
@@ -174,20 +195,47 @@ class Watcher:
             job.input_path.rename(processing_path)
             job.input_path = processing_path
 
-            # Output goes to done folder
-            output_path = self.folders.done / f"{job.input_path.stem}-out.mp4"
-
             def on_progress(p: float):
                 job.progress = p
                 if self.on_job_updated:
                     self.on_job_updated(job)
 
-            result = compress(
-                job.input_path,
-                output_path=output_path,
-                preset=job.preset,
-                on_progress=on_progress,
-            )
+            # Handle special formats (gif, loop) or regular compression
+            if job.special_format == "gif":
+                # Remove -gif suffix and time markers for output name
+                import re
+                stem = job.input_path.stem
+                stem = re.sub(r'-gif(-\d+s?(-\d+s?)?)?$', '', stem, flags=re.IGNORECASE)
+                output_path = self.folders.done / f"{stem}.gif"
+                result = convert_to_gif(
+                    job.input_path,
+                    output_path=output_path,
+                    start=job.start_time,
+                    end=job.end_time,
+                    on_progress=on_progress,
+                )
+            elif job.special_format == "loop":
+                # Remove -loop suffix and time markers for output name
+                import re
+                stem = job.input_path.stem
+                stem = re.sub(r'-loop(-\d+s?(-\d+s?)?)?$', '', stem, flags=re.IGNORECASE)
+                output_path = self.folders.done / f"{stem}-loop.mp4"
+                result = convert_to_loop(
+                    job.input_path,
+                    output_path=output_path,
+                    start=job.start_time,
+                    end=job.end_time,
+                    on_progress=on_progress,
+                )
+            else:
+                # Regular compression
+                output_path = self.folders.done / f"{job.input_path.stem}-out.mp4"
+                result = compress(
+                    job.input_path,
+                    output_path=output_path,
+                    preset=job.preset,
+                    on_progress=on_progress,
+                )
 
             job.result = result
             job.status = JobStatus.DONE

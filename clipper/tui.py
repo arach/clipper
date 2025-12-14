@@ -84,9 +84,10 @@ LOGO_ASCII = """\
 """
 
 from .compress import (
-    probe_video, compress, VideoInfo,
-    PRESETS, DEFAULT_PRESET, Preset,
-    detect_preset_from_filename,
+    probe_video, compress, convert_to_gif, convert_to_loop,
+    VideoInfo, PRESETS, DEFAULT_PRESET, Preset,
+    detect_preset_from_filename, detect_special_format,
+    parse_time, SPECIAL_FORMATS,
 )
 from .watcher import Watcher, WatchFolders, Job, JobStatus
 from .config import get_config, get_config_path, reload_config
@@ -149,12 +150,19 @@ class OutputPanel(Static):
             return "[dim]Waiting for compression...[/dim]"
 
         orig, comp, reduction, path, preset_name = self._result
+
+        # Handle cases where output is larger (common with GIFs)
+        if reduction < 0:
+            size_note = f"[yellow]+{abs(reduction):.1f}%[/yellow] [dim](GIFs can be large!)[/dim]"
+        else:
+            size_note = f"[bold green]-{reduction:.1f}%[/bold green]"
+
         return f"""[bold]{path.name}[/bold]
 
 Original    {orig:.1f} MB
-Compressed  [bold]{comp:.1f} MB[/bold]
-Reduction   [bold]{reduction:.1f}%[/bold]
-Preset      {preset_name}"""
+Output      [bold]{comp:.1f} MB[/bold]
+Change      {size_note}
+Format      {preset_name}"""
 
 
 class QueuePanel(Static):
@@ -180,7 +188,7 @@ class QueuePanel(Static):
         if not self._watch_path:
             return "[dim]Watcher not started[/dim]"
         elif not self._jobs:
-            return f"[dim]Watching:[/dim] {self._watch_path}/inbox\n\n[dim]No jobs in queue[/dim]\n\n[dim]Drop files with preset suffix:[/dim]\n  video-social.mp4\n  video-web.mp4\n  video-archive.mp4\n  video-tiny.mp4"
+            return f"[dim]Watching:[/dim] {self._watch_path}/inbox\n\n[dim]No jobs in queue[/dim]\n\n[dim]Drop files with suffix:[/dim]\n  video-social.mp4\n  video-gif-5s-10s.mp4 → trim\n  video-loop-0-3.mp4 → clip"
         else:
             lines = [f"[dim]Watching:[/dim] {self._watch_path}/inbox\n"]
             for job in self._jobs[-8:]:  # Show last 8 jobs
@@ -195,6 +203,14 @@ class QueuePanel(Static):
                 if len(job.input_path.name) > 30:
                     name = name[:27] + "..."
 
+                # Show format/preset type with trim info
+                format_tag = f"[{job.special_format}]" if job.special_format else f"[{job.preset.name}]"
+                trim_tag = ""
+                if job.start_time is not None or job.end_time is not None:
+                    s = f"{job.start_time:.0f}" if job.start_time else "0"
+                    e = f"{job.end_time:.0f}" if job.end_time else "end"
+                    trim_tag = f" {s}-{e}s"
+
                 if job.status == JobStatus.PROCESSING:
                     pct = f"{job.progress*100:3.0f}%"
                     lines.append(f"{status_icon} {name} {pct}")
@@ -202,7 +218,7 @@ class QueuePanel(Static):
                     reduction = f"-{job.result.reduction_percent:.0f}%"
                     lines.append(f"{status_icon} {name} {reduction}")
                 else:
-                    lines.append(f"{status_icon} {name}")
+                    lines.append(f"{status_icon} {name} {format_tag}{trim_tag}")
 
             return "\n".join(lines)
 
@@ -401,8 +417,8 @@ class AboutScreen(Screen):
 [bold cyan]Presets[/bold cyan] (filename suffix)
   [magenta]-social[/magenta]  50%, CRF 28
   [magenta]-web[/magenta]     75%, CRF 23
-  [magenta]-archive[/magenta] 100%, CRF 18
-  [magenta]-tiny[/magenta]    25%, CRF 32"""
+  [magenta]-gif[/magenta]     animated GIF
+  [magenta]-loop[/magenta]    iMessage loop"""
                     yield Static(quickstart, id="quickstart", markup=True)
 
                     # Spacer pushes footer to bottom
@@ -895,6 +911,34 @@ class VidToolsApp(App):
         width: 1fr;
     }
 
+    #trim-row {
+        height: 0;
+        margin: 0 1;
+        padding: 0 1;
+        overflow: hidden;
+        align-vertical: middle;
+    }
+
+    #trim-row.active {
+        height: 3;
+    }
+
+    #trim-row Label {
+        width: auto;
+        height: 3;
+        padding: 0 1;
+        content-align: center middle;
+    }
+
+    .trim-input {
+        width: 14;
+        height: 3;
+    }
+
+    #trim-spacer {
+        width: 1fr;
+    }
+
     #progress-container {
         height: 3;
         margin: 1;
@@ -959,6 +1003,7 @@ class VidToolsApp(App):
         super().__init__()
         self.video_info: VideoInfo | None = None
         self.selected_preset: Preset = DEFAULT_PRESET
+        self.selected_format: str | None = None  # "gif" or "loop" for special formats
         self.watcher: Watcher | None = None
         self.watch_folders: WatchFolders | None = None
         self._last_escape: float = 0
@@ -987,12 +1032,25 @@ class VidToolsApp(App):
 
             with Horizontal(id="input-row"):
                 yield Input(placeholder="Enter video path...", id="file-input")
+                # Presets plus special formats (gif, loop)
+                preset_options = [(f"{p.name} - {p.description[:30]}", p.name) for p in PRESETS.values()]
+                preset_options.append(("gif - animated GIF", "gif"))
+                preset_options.append(("loop - iMessage loop", "loop"))
                 yield Select(
-                    [(f"{p.name} - {p.description[:30]}", p.name) for p in PRESETS.values()],
+                    preset_options,
                     value="social",
                     id="preset-select",
                 )
                 yield Button("Load", id="load-btn", variant="primary")
+
+            # Trim controls - shown when gif/loop selected
+            with Horizontal(id="trim-row"):
+                yield Label("Trim:")
+                yield Input(placeholder="start (0:05)", id="start-input", classes="trim-input")
+                yield Label("→")
+                yield Input(placeholder="end (0:12)", id="end-input", classes="trim-input")
+                yield Static("", id="trim-spacer")
+                yield Label("[dim]e.g. 5s, 1:30, 90[/dim]")
 
             with Horizontal(id="progress-container"):
                 yield ProgressBar(id="progress", show_eta=True)
@@ -1061,10 +1119,25 @@ class VidToolsApp(App):
 
     def on_select_changed(self, event: Select.Changed):
         if event.select.id == "preset-select":
-            self.selected_preset = PRESETS[event.value]
+            value = event.value
+            trim_row = self.query_one("#trim-row")
+
+            if value in SPECIAL_FORMATS:
+                # Special format selected (gif or loop)
+                self.selected_format = value
+                self.selected_preset = DEFAULT_PRESET  # Fallback preset
+                # Show trim controls
+                trim_row.add_class("active")
+            else:
+                # Regular preset
+                self.selected_format = None
+                self.selected_preset = PRESETS[value]
+                # Hide trim controls
+                trim_row.remove_class("active")
+
             if self.video_info:
                 info_panel = self.query_one("#info-panel", VideoInfoPanel)
-                info_panel.update_info(self.video_info, self.selected_preset)
+                info_panel.update_info(self.video_info, self.selected_preset if not self.selected_format else None)
 
     def action_load_video(self):
         file_input = self.query_one("#file-input", Input)
@@ -1137,19 +1210,61 @@ class VidToolsApp(App):
         progress.update(total=100, progress=0)
 
         preset = self.selected_preset
-        self.write_log(f"[yellow]Compressing:[/yellow] {self.video_info.path.name}")
-        self.write_log(f"[dim]  Preset: {preset.name} | Scale: {preset.scale*100:.0f}% | CRF: {preset.crf}[/dim]")
+        special_format = self.selected_format
+
+        # Get trim values if set
+        start_input = self.query_one("#start-input", Input)
+        end_input = self.query_one("#end-input", Input)
+        start_time = parse_time(start_input.value)
+        end_time = parse_time(end_input.value)
+
+        # Build trim info string
+        trim_info = ""
+        if start_time is not None or end_time is not None:
+            start_str = f"{start_time:.1f}s" if start_time else "0s"
+            end_str = f"{end_time:.1f}s" if end_time else "end"
+            trim_info = f" [{start_str} → {end_str}]"
+
+        # Log what we're doing
+        if special_format == "gif":
+            self.write_log(f"[yellow]Converting to GIF:[/yellow] {self.video_info.path.name}{trim_info}")
+            self.write_log(f"[dim]  480px wide, 15fps, palette-optimized[/dim]")
+        elif special_format == "loop":
+            self.write_log(f"[yellow]Creating loop:[/yellow] {self.video_info.path.name}{trim_info}")
+            self.write_log(f"[dim]  50% scale, silent, iMessage-optimized[/dim]")
+        else:
+            self.write_log(f"[yellow]Compressing:[/yellow] {self.video_info.path.name}")
+            self.write_log(f"[dim]  Preset: {preset.name} | Scale: {preset.scale*100:.0f}% | CRF: {preset.crf}[/dim]")
 
         def on_progress(p: float):
             self.call_from_thread(progress.update, progress=p * 100)
 
         def do_compress():
             try:
-                result = compress(
-                    self.video_info.path,
-                    preset=preset,
-                    on_progress=on_progress,
-                )
+                # Choose the right conversion function
+                if special_format == "gif":
+                    result = convert_to_gif(
+                        self.video_info.path,
+                        start=start_time,
+                        end=end_time,
+                        on_progress=on_progress,
+                    )
+                    format_name = "gif"
+                elif special_format == "loop":
+                    result = convert_to_loop(
+                        self.video_info.path,
+                        start=start_time,
+                        end=end_time,
+                        on_progress=on_progress,
+                    )
+                    format_name = "loop"
+                else:
+                    result = compress(
+                        self.video_info.path,
+                        preset=preset,
+                        on_progress=on_progress,
+                    )
+                    format_name = preset.name
 
                 # Save to history
                 add_to_history(
@@ -1158,7 +1273,7 @@ class VidToolsApp(App):
                     original_size=result.original_size,
                     compressed_size=result.compressed_size,
                     reduction_percent=result.reduction_percent,
-                    preset=preset.name,
+                    preset=format_name,
                 )
 
                 def finish():
@@ -1170,10 +1285,13 @@ class VidToolsApp(App):
                         result.compressed_size / (1024 * 1024),
                         result.reduction_percent,
                         result.output_path,
-                        preset.name,
+                        format_name,
                     )
                     self.write_log(f"[green]Done![/green] {result.output_path}")
-                    self.write_log(f"[green]Reduced:[/green] {result.reduction_percent:.1f}%")
+                    if result.reduction_percent >= 0:
+                        self.write_log(f"[green]Reduced:[/green] {result.reduction_percent:.1f}%")
+                    else:
+                        self.write_log(f"[yellow]Size:[/yellow] +{abs(result.reduction_percent):.1f}% (GIFs gonna GIF)")
                     compress_btn.disabled = False
                     # Enable share button
                     self._last_output = result.output_path

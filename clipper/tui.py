@@ -12,9 +12,54 @@ from textual.widgets import (
     Input, Label, DataTable, RichLog, Select, Switch, TextArea
 )
 from textual.binding import Binding
+from textual.theme import Theme
 from rich.text import Text
-from rich.panel import Panel
-from rich.table import Table
+
+# Theme presets - INPUT uses primary, OUTPUT uses secondary, QUEUE uses accent
+THEMES = [
+    Theme(
+        name="clipper",
+        primary="#00cc66",      # INPUT - bright green
+        secondary="#66aaff",    # OUTPUT - sky blue
+        accent="#ffaa00",       # QUEUE - orange
+        dark=True,
+    ),
+    Theme(
+        name="mono",
+        primary="#ffffff",      # INPUT - white
+        secondary="#aaaaaa",    # OUTPUT - mid gray
+        accent="#666666",       # QUEUE - dark gray
+        dark=True,
+    ),
+    Theme(
+        name="dracula",
+        primary="#bd93f9",      # INPUT - purple
+        secondary="#50fa7b",    # OUTPUT - green
+        accent="#ff79c6",       # QUEUE - pink
+        dark=True,
+    ),
+    Theme(
+        name="nord",
+        primary="#88c0d0",      # INPUT - frost blue
+        secondary="#a3be8c",    # OUTPUT - green
+        accent="#ebcb8b",       # QUEUE - yellow
+        dark=True,
+    ),
+    Theme(
+        name="monokai",
+        primary="#f92672",      # INPUT - pink
+        secondary="#a6e22e",    # OUTPUT - green
+        accent="#fd971f",       # QUEUE - orange
+        dark=True,
+    ),
+    Theme(
+        name="solarized",
+        primary="#268bd2",      # INPUT - blue
+        secondary="#859900",    # OUTPUT - green
+        accent="#cb4b16",       # QUEUE - orange
+        dark=True,
+    ),
+]
 
 # ASCII logo with ANSI colors (green scissors)
 LOGO_ASCII = """\
@@ -34,7 +79,7 @@ LOGO_ASCII = """\
 \x1b[38;2;77;205;123mx\x1b[0m\x1b[38;2;30;91;49m'\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;32;99;52m'\x1b[0m\x1b[38;2;76;225;125mk\x1b[0m\x1b[38;2;70;211;117mx\x1b[0m\x1b[38;2;58;183;100mo\x1b[0m\x1b[38;2;11;48;22m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;22;67;36m.\x1b[0m\x1b[38;2;70;210;117mx\x1b[0m\x1b[38;2;58;184;101mo\x1b[0m\x1b[38;2;47;156;84mc\x1b[0m\x1b[38;2;15;59;28m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;6;50;22m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
 \x1b[38;2;57;150;90mc\x1b[0m\x1b[38;2;38;113;63m,\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;39;114;63m,\x1b[0m\x1b[38;2;60;189;104mo\x1b[0m\x1b[38;2;39;135;71m:\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;67;193;111md\x1b[0m\x1b[38;2;62;193;106mo\x1b[0m\x1b[38;2;31;107;56m,\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;18;87;43m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
 \x1b[38;2;54;146;86mc\x1b[0m\x1b[38;2;32;98;52m'\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;44;126;72m;\x1b[0m\x1b[38;2;45;153;83mc\x1b[0m\x1b[38;2;13;57;26m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;28;84;45m.\x1b[0m\x1b[38;2;67;204;113md\x1b[0m\x1b[38;2;43;141;76m:\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;14;55;25m.\x1b[0m\x1b[38;2;36;128;69m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
-\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;65;182;106mo\x1b[0m\x1b[38;2;21;69;35m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;8;32;13m \x1b[0m\x1b[38;2;40;117;66m;\x1b[0m\x1b[38;2;49;158;87mc\x1b[0m\x1b[38;2;14;62;30m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;31;98;52m'\x1b[0m\x1b[38;2;61;189;104mo\x1b[0m\x1b[38;2;35;118;63m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;29;88;49m'\x1b[0m\x1b[38;2;57;164;97ml\x1b[0m\x1b[38;2;6;37;15m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
+\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;65;182;106mo\x1b[0m\x1b[38;2;21;69;35m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;8;32;13m \x1b[0m\x1b[38;2;40;117;66m;\x1b[0m\x1b[38;2;49;158;87mc\x1b[0m\x1b[38;2;14;62;30m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;31;98;52m'\x1b[0m\x1b[38;2;61;189;104mo\x1b[0m\x1b[38;2;35;118;63m;\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;29;88;49m'\x1b[0m\x1b[38;2;6;37;15m \x1b[0m\x1b[38;2;57;164;97ml\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
 \x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;34;104;56m,\x1b[0m\x1b[38;2;44;134;72m:\x1b[0m\x1b[38;2;42;131;70m;\x1b[0m\x1b[38;2;45;139;75m:\x1b[0m\x1b[38;2;48;148;80m:\x1b[0m\x1b[38;2;46;143;78m:\x1b[0m\x1b[38;2;21;79;40m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;7;33;12m \x1b[0m\x1b[38;2;26;89;45m'\x1b[0m\x1b[38;2;34;116;61m,\x1b[0m\x1b[38;2;29;104;54m,\x1b[0m\x1b[38;2;23;87;44m.\x1b[0m\x1b[38;2;25;91;46m'\x1b[0m\x1b[38;2;34;112;60m,\x1b[0m\x1b[38;2;23;78;41m.\x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m\x1b[38;2;0;12;0m \x1b[0m
 """
 
@@ -51,10 +96,13 @@ from .history import load_history, add_to_history, HistoryEntry
 class VideoInfoPanel(Static):
     """Display video metadata"""
 
+    BORDER_TITLE = "[ INPUT ]"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._info: VideoInfo | None = None
         self._preset: Preset | None = None
+        self.border_title = self.BORDER_TITLE
 
     def update_info(self, info: VideoInfo | None, preset: Preset | None = None):
         self._info = info
@@ -63,37 +111,30 @@ class VideoInfoPanel(Static):
 
     def render(self):
         if not self._info:
-            return Panel(
-                "[dim]No video loaded[/dim]\n\nPaste path below or drop into inbox",
-                title="[bold cyan][ INPUT ][/bold cyan]",
-                border_style="cyan",
-            )
+            return "[dim]No video loaded[/dim]\n\nPaste path below or drop into inbox"
 
         i = self._info
-        preset_str = f"[magenta]{self._preset.name}[/magenta]" if self._preset else "[dim]auto[/dim]"
-        content = f"""[bold white]{i.path.name}[/bold white]
+        preset_str = f"[bold]{self._preset.name}[/bold]" if self._preset else "[dim]auto[/dim]"
+        return f"""[bold]{i.path.name}[/bold]
 
-[cyan]Dimensions[/cyan]  {i.dimensions}
-[cyan]Duration[/cyan]    {i.duration:.1f}s
-[cyan]Codec[/cyan]       {i.codec}
-[cyan]FPS[/cyan]         {i.fps:.0f}
-[cyan]Bitrate[/cyan]     {i.bitrate // 1000} kbps
-[cyan]Size[/cyan]        [bold yellow]{i.size_mb:.1f} MB[/bold yellow]
-[cyan]Preset[/cyan]      {preset_str}"""
-
-        return Panel(
-            content,
-            title="[bold cyan][ INPUT ][/bold cyan]",
-            border_style="cyan",
-        )
+Dimensions  {i.dimensions}
+Duration    {i.duration:.1f}s
+Codec       {i.codec}
+FPS         {i.fps:.0f}
+Bitrate     {i.bitrate // 1000} kbps
+Size        [bold]{i.size_mb:.1f} MB[/bold]
+Preset      {preset_str}"""
 
 
 class OutputPanel(Static):
     """Display compression results"""
 
+    BORDER_TITLE = "[ OUTPUT ]"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._result = None
+        self.border_title = self.BORDER_TITLE
 
     def set_result(self, original_mb: float, compressed_mb: float, reduction: float, path: Path, preset_name: str = ""):
         self._result = (original_mb, compressed_mb, reduction, path, preset_name)
@@ -105,34 +146,27 @@ class OutputPanel(Static):
 
     def render(self):
         if not self._result:
-            return Panel(
-                "[dim]Waiting for compression...[/dim]",
-                title="[bold green][ OUTPUT ][/bold green]",
-                border_style="green",
-            )
+            return "[dim]Waiting for compression...[/dim]"
 
         orig, comp, reduction, path, preset_name = self._result
-        content = f"""[bold white]{path.name}[/bold white]
+        return f"""[bold]{path.name}[/bold]
 
-[green]Original[/green]    {orig:.1f} MB
-[green]Compressed[/green]  [bold]{comp:.1f} MB[/bold]
-[green]Reduction[/green]   [bold yellow]{reduction:.1f}%[/bold yellow]
-[green]Preset[/green]      [magenta]{preset_name}[/magenta]"""
-
-        return Panel(
-            content,
-            title="[bold green][ OUTPUT ][/bold green]",
-            border_style="green",
-        )
+Original    {orig:.1f} MB
+Compressed  [bold]{comp:.1f} MB[/bold]
+Reduction   [bold]{reduction:.1f}%[/bold]
+Preset      {preset_name}"""
 
 
 class QueuePanel(Static):
     """Display job queue from watcher"""
 
+    BORDER_TITLE = "[ QUEUE ]"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._jobs: list[Job] = []
         self._watch_path: Path | None = None
+        self.border_title = self.BORDER_TITLE
 
     def set_watch_path(self, path: Path):
         self._watch_path = path
@@ -144,17 +178,17 @@ class QueuePanel(Static):
 
     def render(self):
         if not self._watch_path:
-            content = "[dim]Watcher not started[/dim]"
+            return "[dim]Watcher not started[/dim]"
         elif not self._jobs:
-            content = f"[dim]Watching:[/dim] {self._watch_path}/inbox\n\n[dim]No jobs in queue[/dim]\n\n[dim italic]Drop files with preset suffix:[/dim]\n  video[magenta]-social[/magenta].mp4\n  video[magenta]-web[/magenta].mp4\n  video[magenta]-archive[/magenta].mp4\n  video[magenta]-tiny[/magenta].mp4"
+            return f"[dim]Watching:[/dim] {self._watch_path}/inbox\n\n[dim]No jobs in queue[/dim]\n\n[dim]Drop files with preset suffix:[/dim]\n  video-social.mp4\n  video-web.mp4\n  video-archive.mp4\n  video-tiny.mp4"
         else:
             lines = [f"[dim]Watching:[/dim] {self._watch_path}/inbox\n"]
             for job in self._jobs[-8:]:  # Show last 8 jobs
                 status_icon = {
-                    JobStatus.QUEUED: "[yellow]>[/yellow]",
-                    JobStatus.PROCESSING: "[cyan]~[/cyan]",
-                    JobStatus.DONE: "[green]+[/green]",
-                    JobStatus.FAILED: "[red]![/red]",
+                    JobStatus.QUEUED: ">",
+                    JobStatus.PROCESSING: "~",
+                    JobStatus.DONE: "+",
+                    JobStatus.FAILED: "!",
                 }[job.status]
 
                 name = job.input_path.name[:30]
@@ -162,21 +196,15 @@ class QueuePanel(Static):
                     name = name[:27] + "..."
 
                 if job.status == JobStatus.PROCESSING:
-                    pct = f"[cyan]{job.progress*100:3.0f}%[/cyan]"
+                    pct = f"{job.progress*100:3.0f}%"
                     lines.append(f"{status_icon} {name} {pct}")
                 elif job.status == JobStatus.DONE and job.result:
-                    reduction = f"[green]-{job.result.reduction_percent:.0f}%[/green]"
+                    reduction = f"-{job.result.reduction_percent:.0f}%"
                     lines.append(f"{status_icon} {name} {reduction}")
                 else:
                     lines.append(f"{status_icon} {name}")
 
-            content = "\n".join(lines)
-
-        return Panel(
-            content,
-            title="[bold magenta][ QUEUE ][/bold magenta]",
-            border_style="magenta",
-        )
+            return "\n".join(lines)
 
 
 class StatusLog(RichLog):
@@ -355,7 +383,7 @@ class AboutScreen(Screen):
             with Horizontal(id="top-row"):
                 # Left column: Logo
                 with Vertical(id="logo-column"):
-                    yield Static(Text.from_ansi(LOGO_ASCII), id="logo-display")
+                    yield Static(shimmer_logo(LOGO_ASCII, 100), id="logo-display")
 
                 # Right column: Info + Quick Start + Footer
                 with Vertical(id="info-column"):
@@ -429,12 +457,6 @@ class AboutScreen(Screen):
             if self._shimmer_timer:
                 self._shimmer_timer.stop()
                 self._shimmer_timer = None
-            # Set final static logo
-            try:
-                logo_display = self.query_one("#logo-display", Static)
-                logo_display.update(Text.from_ansi(LOGO_ASCII))
-            except Exception:
-                pass
             # Schedule next shimmer in 2 minutes
             self._schedule_next_shimmer()
             return
@@ -831,6 +853,17 @@ class VidToolsApp(App):
         height: auto;
         min-height: 12;
         margin: 0 1;
+        padding: 1;
+    }
+
+    VideoInfoPanel {
+        border: solid $primary;
+        border-title-color: $primary;
+    }
+
+    OutputPanel {
+        border: solid $secondary;
+        border-title-color: $secondary;
     }
 
     #queue-row {
@@ -843,6 +876,9 @@ class VidToolsApp(App):
         width: 100%;
         height: auto;
         min-height: 10;
+        padding: 1;
+        border: solid $accent;
+        border-title-color: $accent;
     }
 
     #input-row {
@@ -916,6 +952,7 @@ class VidToolsApp(App):
         Binding("h", "history", "History"),
         Binding("l", "copy_log", "Copy Log"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
+        Binding("t", "cycle_theme", "Theme", show=False),
     ]
 
     def __init__(self):
@@ -927,6 +964,10 @@ class VidToolsApp(App):
         self._last_escape: float = 0
         self._last_output: Path | None = None
         self._log_history: list[str] = []
+        self._theme_index: int = 0
+        # Register custom themes
+        for theme in THEMES:
+            self.register_theme(theme)
 
     def write_log(self, message: str):
         """Write to log panel and keep history"""
@@ -969,8 +1010,9 @@ class VidToolsApp(App):
     def on_mount(self):
         self.title = "clipper"
         self.sub_title = "video compression utility"
-        # Start unfocused so keybindings are discoverable (defer to after render)
-        self.call_later(self.set_focus, None)
+        self.theme = "clipper"
+        # Start unfocused so keybindings are discoverable
+        self.set_timer(0.1, lambda: self.set_focus(None))
 
         # Show onboarding splash for first-time users
         if not has_been_onboarded():
@@ -1264,6 +1306,13 @@ class VidToolsApp(App):
     def action_history(self):
         """Show compression history"""
         self.push_screen(HistoryScreen())
+
+    def action_cycle_theme(self):
+        """Cycle through available themes"""
+        self._theme_index = (self._theme_index + 1) % len(THEMES)
+        theme = THEMES[self._theme_index]
+        self.theme = theme.name
+        self.notify(f"Theme: {theme.name}", severity="information", timeout=1.5)
 
     def on_unmount(self):
         if self.watcher:

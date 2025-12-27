@@ -1106,7 +1106,7 @@ class VidToolsApp(App):
         text = text.replace("\\ ", " ")  # Handle escaped spaces
 
         # Check if it looks like a video file
-        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv', '.flv'}
+        video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv', '.flv', '.gif'}
         path = Path(text)
 
         if path.suffix.lower() in video_extensions and path.exists():

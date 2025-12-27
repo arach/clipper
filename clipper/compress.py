@@ -271,6 +271,7 @@ def compress(
 
     cmd.extend([
         "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",  # Ensure compatibility with all players
         "-crf", str(_crf),
         "-preset", "medium",
         "-c:a", "aac",
@@ -511,6 +512,7 @@ def convert_to_loop(
     cmd.extend([
         "-vf", scale_filter,
         "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",  # Ensure compatibility with all players
         "-crf", "23",
         "-preset", "medium",
         "-an",  # No audio for loops

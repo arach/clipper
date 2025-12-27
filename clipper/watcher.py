@@ -69,7 +69,7 @@ class WatchFolders:
 class VideoHandler(FileSystemEventHandler):
     """Handle new video files in inbox"""
 
-    VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+    VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".gif"}
 
     def __init__(
         self,

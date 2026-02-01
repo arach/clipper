@@ -269,8 +269,9 @@ class Watcher:
         self._observer.schedule(handler, str(self.folders.inbox), recursive=False)
         self._observer.start()
 
-        # Process any existing files
-        self.scan_inbox()
+        # Process any existing files in background thread
+        # (callbacks use call_from_thread which requires non-main thread)
+        threading.Thread(target=self.scan_inbox, daemon=True).start()
 
     def stop(self):
         """Stop watching"""

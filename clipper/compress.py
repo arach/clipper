@@ -142,7 +142,27 @@ def parse_trim_from_filename(path: Path) -> tuple[str | None, float | None, floa
     return None, None, None
 
 
-def get_output_name(input_path: Path, preset: Preset) -> Path:
+def _resolve_output_dir(input_path: Path, output_dir: Path | None = None) -> Path:
+    """Determine the output directory, avoiding transient locations like /tmp."""
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir
+
+    import tempfile
+    tmp = Path(tempfile.gettempdir()).resolve()
+    parent = input_path.resolve().parent
+
+    # If the input is in /tmp or a subdirectory, redirect to ~/Movies/VidTools/done
+    if parent == tmp or str(parent).startswith(str(tmp) + "/"):
+        from clipper.config import get_config
+        dest = get_config().folders.done
+        dest.mkdir(parents=True, exist_ok=True)
+        return dest
+
+    return parent
+
+
+def get_output_name(input_path: Path, preset: Preset, output_dir: Path | None = None) -> Path:
     """Generate output filename based on input and preset"""
     stem = input_path.stem
     # Remove preset suffix if present to avoid duplication
@@ -150,7 +170,8 @@ def get_output_name(input_path: Path, preset: Preset) -> Path:
         if stem.lower().endswith(f"-{preset_name}"):
             stem = stem[: -(len(preset_name) + 1)]
             break
-    return input_path.parent / f"{stem}-{preset.name}-out.mp4"
+    dest = _resolve_output_dir(input_path, output_dir)
+    return dest / f"{stem}-{preset.name}-out.mp4"
 
 
 @dataclass
@@ -180,10 +201,24 @@ class CompressionResult:
     original_size: int
     compressed_size: int
     preset: Preset | None = None
+    kept_original: bool = False
 
     @property
     def reduction_percent(self) -> float:
         return (1 - self.compressed_size / self.original_size) * 100
+
+
+def _keep_smaller(input_path: Path, output_path: Path) -> bool:
+    """If the output is larger than the input (same format), replace it with a copy of the original.
+    Returns True if the original was kept. Only applies when formats match."""
+    import shutil
+    # Don't compare across format conversions (e.g. mp4 → gif)
+    if input_path.suffix.lower() != output_path.suffix.lower():
+        return False
+    if output_path.stat().st_size >= input_path.stat().st_size:
+        shutil.copy2(input_path, output_path)
+        return True
+    return False
 
 
 def probe_video(path: Path) -> VideoInfo:
@@ -227,6 +262,7 @@ def compress(
     crf: int | None = None,
     audio_bitrate: str | None = None,
     on_progress: Callable[[float], None] | None = None,
+    output_dir: Path | None = None,
 ) -> CompressionResult:
     """
     Compress a video file.
@@ -254,7 +290,7 @@ def compress(
     _audio_bitrate = audio_bitrate if audio_bitrate is not None else preset.audio_bitrate
 
     if output_path is None:
-        output_path = get_output_name(input_path, preset)
+        output_path = get_output_name(input_path, preset, output_dir)
     output_path = Path(output_path)
 
     # Get duration for progress calculation
@@ -316,12 +352,14 @@ def compress(
         stderr = process.stderr.read() if process.stderr else ""
         raise RuntimeError(f"ffmpeg failed: {stderr}")
 
+    kept = _keep_smaller(input_path, output_path)
     return CompressionResult(
         input_path=input_path,
         output_path=output_path,
         original_size=input_path.stat().st_size,
         compressed_size=output_path.stat().st_size,
         preset=preset,
+        kept_original=kept,
     )
 
 
@@ -333,6 +371,7 @@ def convert_to_gif(
     start: float | None = None,
     end: float | None = None,
     on_progress: Callable[[float], None] | None = None,
+    output_dir: Path | None = None,
 ) -> CompressionResult:
     """
     Convert video to high-quality GIF using palette generation.
@@ -353,8 +392,16 @@ def convert_to_gif(
         # Remove -gif suffix and any time markers
         import re
         stem = re.sub(r'-gif(-\d+s?(-\d+s?)?)?$', '', stem, flags=re.IGNORECASE)
-        output_path = input_path.parent / f"{stem}.gif"
+        dest = _resolve_output_dir(input_path, output_dir)
+        output_path = dest / f"{stem}.gif"
     output_path = Path(output_path)
+
+    # FFmpeg cannot read and write the same file — use a temp file if paths collide
+    overwrite_in_place = input_path.resolve() == output_path.resolve()
+    if overwrite_in_place:
+        actual_output = output_path.parent / f".{output_path.stem}_tmp.gif"
+    else:
+        actual_output = output_path
 
     info = probe_video(input_path)
 
@@ -366,7 +413,9 @@ def convert_to_gif(
     # Two-pass GIF: generate palette, then use it
     palette_path = output_path.parent / f".{output_path.stem}_palette.png"
 
-    filters = f"fps={fps},scale={width}:-1:flags=lanczos"
+    # Don't upscale — only downscale if input is wider than target
+    effective_width = min(width, info.width)
+    filters = f"fps={fps},scale={effective_width}:-1:flags=lanczos"
 
     # Build seek/trim args
     seek_args = []
@@ -386,7 +435,7 @@ def convert_to_gif(
     cmd1.extend(seek_args)
     cmd1.extend(["-i", str(input_path)])
     cmd1.extend(trim_args)
-    cmd1.extend(["-vf", f"{filters},palettegen=stats_mode=diff", "-y", str(palette_path)])
+    cmd1.extend(["-vf", f"{filters},palettegen=max_colors=128:stats_mode=diff", "-y", str(palette_path)])
 
     subprocess.run(cmd1, capture_output=True, check=True)
 
@@ -399,9 +448,10 @@ def convert_to_gif(
     cmd2.extend(["-i", str(input_path), "-i", str(palette_path)])
     cmd2.extend(trim_args)
     cmd2.extend([
-        "-filter_complex", f"{filters}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5",
+        "-filter_complex", f"{filters}[x];[x][1:v]paletteuse=dither=floyd_steinberg",
+        "-loop", "0",
         "-y", "-progress", "pipe:1",
-        str(output_path)
+        str(actual_output)
     ])
 
     process = subprocess.Popen(
@@ -439,7 +489,16 @@ def convert_to_gif(
 
     if process.returncode != 0:
         stderr = process.stderr.read() if process.stderr else ""
+        # Clean up temp file on failure
+        if overwrite_in_place:
+            actual_output.unlink(missing_ok=True)
         raise RuntimeError(f"ffmpeg failed: {stderr}")
+
+    # Move temp file to final destination if we wrote to a temp path
+    if overwrite_in_place:
+        actual_output.replace(output_path)
+
+    kept = _keep_smaller(input_path, output_path)
 
     # Create a dummy preset for result
     gif_preset = Preset("gif", 1.0, 0, "", "animated GIF")
@@ -450,6 +509,7 @@ def convert_to_gif(
         original_size=input_path.stat().st_size,
         compressed_size=output_path.stat().st_size,
         preset=gif_preset,
+        kept_original=kept,
     )
 
 
@@ -460,6 +520,7 @@ def convert_to_loop(
     start: float | None = None,
     end: float | None = None,
     on_progress: Callable[[float], None] | None = None,
+    output_dir: Path | None = None,
 ) -> CompressionResult:
     """
     Convert video to silent looping video for iMessage.
@@ -481,7 +542,8 @@ def convert_to_loop(
         # Remove -loop suffix and any time markers
         import re
         stem = re.sub(r'-loop(-\d+s?(-\d+s?)?)?$', '', stem, flags=re.IGNORECASE)
-        output_path = input_path.parent / f"{stem}-loop.mp4"
+        dest = _resolve_output_dir(input_path, output_dir)
+        output_path = dest / f"{stem}-loop.mp4"
     output_path = Path(output_path)
 
     info = probe_video(input_path)
@@ -554,6 +616,8 @@ def convert_to_loop(
         stderr = process.stderr.read() if process.stderr else ""
         raise RuntimeError(f"ffmpeg failed: {stderr}")
 
+    kept = _keep_smaller(input_path, output_path)
+
     # Create a dummy preset for result
     loop_preset = Preset("loop", scale, 23, "", "iMessage loop")
 
@@ -563,4 +627,5 @@ def convert_to_loop(
         original_size=input_path.stat().st_size,
         compressed_size=output_path.stat().st_size,
         preset=loop_preset,
+        kept_original=kept,
     )

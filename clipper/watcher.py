@@ -18,10 +18,12 @@ from .compress import (
     detect_special_format,
     parse_trim_from_filename,
     DEFAULT_PRESET,
+    PRESETS,
     VideoInfo,
     CompressionResult,
     Preset,
 )
+from .config import get_config
 
 
 class JobStatus(Enum):
@@ -51,6 +53,7 @@ class WatchFolders:
     inbox: Path
     processing: Path
     done: Path
+    originals: Path
 
     @classmethod
     def create(cls, base: Path) -> "WatchFolders":
@@ -59,10 +62,12 @@ class WatchFolders:
             inbox=base / "inbox",
             processing=base / "processing",
             done=base / "done",
+            originals=base / "originals",
         )
         folders.inbox.mkdir(parents=True, exist_ok=True)
         folders.processing.mkdir(parents=True, exist_ok=True)
         folders.done.mkdir(parents=True, exist_ok=True)
+        folders.originals.mkdir(parents=True, exist_ok=True)
         return folders
 
 
@@ -114,11 +119,13 @@ class Watcher:
         on_job_added: Callable[[Job], None] | None = None,
         on_job_updated: Callable[[Job], None] | None = None,
         on_job_done: Callable[[Job], None] | None = None,
+        delete_source: bool = False,
     ):
         self.folders = folders
         self.on_job_added = on_job_added
         self.on_job_updated = on_job_updated
         self.on_job_done = on_job_done
+        self.delete_source = delete_source
 
         self.jobs: list[Job] = []
         self._queue: list[Job] = []
@@ -137,7 +144,10 @@ class Watcher:
         if special_format is None:
             special_format = detect_special_format(path)
 
-        preset = detect_preset_from_filename(path) or DEFAULT_PRESET
+        # Use configured default preset, falling back to hardcoded default
+        config = get_config()
+        configured_default = PRESETS.get(config.presets.default, DEFAULT_PRESET)
+        preset = detect_preset_from_filename(path) or configured_default
 
         try:
             info = probe_video(path)
@@ -243,7 +253,10 @@ class Watcher:
 
             # Clean up source file from processing folder
             if job.input_path.exists():
-                job.input_path.unlink()
+                if self.delete_source:
+                    job.input_path.unlink()
+                else:
+                    job.input_path.rename(self.folders.originals / job.input_path.name)
 
         except Exception as e:
             job.status = JobStatus.FAILED

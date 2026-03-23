@@ -13,7 +13,7 @@ DEFAULT_CONFIG = """\
 
 [folders]
 # Base folder for watch mode
-# Subfolders: inbox/, processing/, done/
+# Subfolders: inbox/, processing/, done/, originals/
 watch_base = "~/Movies/VidTools"
 
 [presets]
@@ -26,7 +26,8 @@ default = "social"
 auto_start_watcher = false
 
 # Delete source file after successful compression (watch mode only)
-delete_source = true
+# When false, originals are moved to the originals/ subfolder
+delete_source = false
 
 # Show desktop notification when job completes
 notifications = true
@@ -49,6 +50,10 @@ class FolderConfig:
     def done(self) -> Path:
         return self.watch_base / "done"
 
+    @property
+    def originals(self) -> Path:
+        return self.watch_base / "originals"
+
 
 @dataclass
 class PresetConfig:
@@ -58,7 +63,7 @@ class PresetConfig:
 @dataclass
 class BehaviorConfig:
     auto_start_watcher: bool = False
-    delete_source: bool = True
+    delete_source: bool = False
     notifications: bool = True
 
 

@@ -4,6 +4,7 @@ import math
 import re
 import threading
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 from textual.app import App, ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Horizontal, Vertical, ScrollableContainer, Center
@@ -137,8 +138,8 @@ class OutputPanel(Static):
         self._result = None
         self.border_title = self.BORDER_TITLE
 
-    def set_result(self, original_mb: float, compressed_mb: float, reduction: float, path: Path, preset_name: str = ""):
-        self._result = (original_mb, compressed_mb, reduction, path, preset_name)
+    def set_result(self, original_mb: float, compressed_mb: float, reduction: float, path: Path, preset_name: str = "", kept_original: bool = False):
+        self._result = (original_mb, compressed_mb, reduction, path, preset_name, kept_original)
         self.refresh()
 
     def clear(self):
@@ -149,19 +150,28 @@ class OutputPanel(Static):
         if not self._result:
             return "[dim]Waiting for compression...[/dim]"
 
-        orig, comp, reduction, path, preset_name = self._result
+        orig, comp, reduction, path, preset_name, kept_original = self._result
 
-        # Handle cases where output is larger (common with GIFs)
-        if reduction < 0:
-            size_note = f"[yellow]+{abs(reduction):.1f}%[/yellow] [dim](GIFs can be large!)[/dim]"
+        # Handle size display
+        if kept_original:
+            size_note = "[dim]kept original[/dim]"
+        elif abs(reduction) < 0.1:
+            size_note = "[dim]converted[/dim]"
+        elif reduction < 0:
+            size_note = f"[yellow]+{abs(reduction):.1f}%[/yellow] [dim](kept original)[/dim]"
         else:
             size_note = f"[bold green]-{reduction:.1f}%[/bold green]"
 
-        return f"""[bold]{path.name}[/bold]
+        # Show path with ~ shorthand for home directory
+        home = str(Path.home())
+        dir_str = str(path.parent)
+        if dir_str.startswith(home):
+            dir_str = "~" + dir_str[len(home):]
 
-Original    {orig:.1f} MB
-Output      [bold]{comp:.1f} MB[/bold]
-Change      {size_note}
+        return f"""[bold]{path.name}[/bold]
+[dim]{dir_str}/[/dim]
+
+{orig:.1f} MB → [bold]{comp:.1f} MB[/bold]  {size_note}
 Format      {preset_name}"""
 
 
@@ -228,6 +238,17 @@ class StatusLog(RichLog):
 
     def __init__(self, **kwargs):
         super().__init__(markup=True, **kwargs)
+
+
+def _clean_path(text: str) -> str:
+    """Clean shell escapes and quotes from a file path string."""
+    if text.startswith(("'", '"')) and text.endswith(("'", '"')):
+        text = text[1:-1]
+    # Remove shell backslash escapes (e.g. \  \( \) \' etc.)
+    text = re.sub(r'\\(.)', r'\1', text)
+    # Decode any percent-encoded characters
+    text = unquote(text)
+    return text
 
 
 def _get_onboarded_path() -> Path:
@@ -989,7 +1010,8 @@ class VidToolsApp(App):
         Binding("escape", "unfocus", "Unfocus", show=False),
         Binding("q", "quit", "Quit"),
         Binding("c", "compress", "Compress"),
-        Binding("s", "share", "Share"),
+        Binding("r", "share", "Reveal"),
+        Binding("s", "share", "Reveal", show=False),
         Binding("w", "toggle_watch", "Watch"),
         Binding("e", "open_config", "Config"),
         Binding("a", "about", "About"),
@@ -997,6 +1019,7 @@ class VidToolsApp(App):
         Binding("l", "copy_log", "Copy Log"),
         Binding("ctrl+l", "clear_log", "Clear Log"),
         Binding("t", "cycle_theme", "Theme", show=False),
+        Binding("x", "clear_input", "Clear"),
     ]
 
     def __init__(self):
@@ -1009,6 +1032,7 @@ class VidToolsApp(App):
         self._last_escape: float = 0
         self._last_output: Path | None = None
         self._log_history: list[str] = []
+        self._auto_compress_after_load: bool = False
         self._theme_index: int = 0
         # Register custom themes
         for theme in THEMES:
@@ -1041,7 +1065,7 @@ class VidToolsApp(App):
                     value="social",
                     id="preset-select",
                 )
-                yield Button("Load", id="load-btn", variant="primary")
+                yield Button("Go", id="load-btn", variant="primary")
 
             # Trim controls - shown when gif/loop selected
             with Horizontal(id="trim-row"):
@@ -1056,8 +1080,8 @@ class VidToolsApp(App):
                 yield ProgressBar(id="progress", show_eta=True)
 
             with Horizontal(id="button-row"):
-                yield Button("Compress", id="compress-btn", variant="success", disabled=True)
-                yield Button("Ready to share?", id="share-btn", variant="primary", disabled=True)
+                yield Button("Compress", id="compress-btn", variant="default", disabled=True)
+                yield Button("Reveal", id="share-btn", variant="primary", disabled=True)
                 yield Button("Start Watcher", id="watch-btn", variant="warning")
 
             with Container(id="log-container"):
@@ -1084,7 +1108,7 @@ class VidToolsApp(App):
 
     def on_button_pressed(self, event: Button.Pressed):
         if event.button.id == "load-btn":
-            self.action_load_video()
+            self.action_go()
         elif event.button.id == "compress-btn":
             self.action_compress()
         elif event.button.id == "share-btn":
@@ -1094,16 +1118,44 @@ class VidToolsApp(App):
 
     def on_input_submitted(self, event: Input.Submitted):
         if event.input.id == "file-input":
-            self.action_load_video()
+            self.action_go()
 
     def on_paste(self, event) -> None:
         """Handle drag & drop / paste of file paths"""
         text = event.text.strip()
 
-        # Clean up the path (remove quotes, handle escapes)
-        if text.startswith(("'", '"')) and text.endswith(("'", '"')):
-            text = text[1:-1]
-        text = text.replace("\\ ", " ")  # Handle escaped spaces
+        # Handle multiple paths (take the first one)
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        if lines:
+            text = lines[0]
+
+        # Handle file:// URLs (common when dragging from Finder)
+        if text.startswith("file://"):
+            text = unquote(urlparse(text).path)
+
+        # Handle http/https URLs (e.g. Giphy links)
+        if text.startswith(("http://", "https://")):
+            file_input = self.query_one("#file-input", Input)
+            file_input.value = text
+            # Auto-detect GIF URLs and set format + auto-run
+            is_gif_url = (
+                text.lower().endswith(".gif")
+                or "giphy.com" in text.lower()
+                or "tenor.com" in text.lower()
+            )
+            if is_gif_url:
+                self.selected_format = "gif"
+                select = self.query_one("#preset-select", Select)
+                select.value = "gif"
+                trim_row = self.query_one("#trim-row")
+                trim_row.add_class("active")
+                self._auto_compress_after_load = True
+            self.action_load_video()
+            event.prevent_default()
+            return
+
+        # Clean up the path (remove quotes, handle shell escapes)
+        text = _clean_path(text)
 
         # Check if it looks like a video file
         video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.wmv', '.flv', '.gif'}
@@ -1139,11 +1191,99 @@ class VidToolsApp(App):
                 info_panel = self.query_one("#info-panel", VideoInfoPanel)
                 info_panel.update_info(self.video_info, self.selected_preset if not self.selected_format else None)
 
-    def action_load_video(self):
+    def action_go(self):
+        """Smart Go button: load if no file loaded, compress if file is ready."""
         file_input = self.query_one("#file-input", Input)
-        path_str = file_input.value.strip()
+        path_str = _clean_path(file_input.value.strip())
 
         if not path_str:
+            return
+
+        # If we already have a video loaded and the input hasn't changed, compress
+        if self.video_info and str(self.video_info.path) == str(Path(path_str).expanduser().resolve()):
+            self.action_compress()
+            return
+
+        # Otherwise load the file
+        self.action_load_video()
+
+    def _download_and_load(self, url: str):
+        """Download a URL (e.g. Giphy link) and load the resulting file."""
+        import tempfile
+        import urllib.request
+        import re as _re
+
+        self.write_log(f"[cyan]Downloading:[/cyan] {url}")
+        load_btn = self.query_one("#load-btn", Button)
+        load_btn.disabled = True
+        load_btn.label = "Downloading..."
+
+        def do_download():
+            try:
+                parsed = urlparse(url)
+
+                # Giphy page URLs → direct GIF download
+                # e.g. https://giphy.com/gifs/cat-gentleman-138TYsM7eRoJnG
+                if "giphy.com" in parsed.netloc and "/gifs/" in parsed.path:
+                    slug = parsed.path.rstrip("/").split("/")[-1]
+                    # The Giphy ID is the last hyphen-separated segment
+                    gif_id = slug.split("-")[-1]
+                    direct_url = f"https://media.giphy.com/media/{gif_id}/giphy.gif"
+                    filename = f"{gif_id}.gif"
+                elif "giphy.com" in parsed.netloc and "/media/" in parsed.path:
+                    # Already a direct media URL
+                    direct_url = url
+                    filename = parsed.path.rstrip("/").split("/")[-1]
+                    if not filename.endswith((".gif", ".mp4", ".webp")):
+                        filename = "giphy.gif"
+                else:
+                    direct_url = url
+                    filename = parsed.path.rstrip("/").split("/")[-1] or "download"
+                    # Ensure a video/gif extension
+                    if not Path(filename).suffix.lower() in {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.gif', '.m4v'}:
+                        filename += ".gif"
+
+                # Use human-readable dated filename: clipper-mar23.gif
+                from datetime import datetime
+                ext = Path(filename).suffix or ".gif"
+                ts = datetime.now().strftime("%b%d").lower()
+                filename = f"clipper-{ts}{ext}"
+
+                tmp_dir = Path(tempfile.gettempdir())
+                dest = tmp_dir / filename
+
+                urllib.request.urlretrieve(direct_url, dest)
+
+                def finish():
+                    load_btn.disabled = False
+                    load_btn.label = "Go"
+                    file_input = self.query_one("#file-input", Input)
+                    file_input.value = str(dest)
+                    self.write_log(f"[green]Downloaded:[/green] {dest.name} ({dest.stat().st_size / (1024*1024):.1f} MB)")
+                    self.action_load_video()
+
+                self.call_from_thread(finish)
+
+            except Exception as e:
+                def on_error():
+                    self.write_log(f"[red]Download failed:[/red] {e}")
+                    load_btn.disabled = False
+                    load_btn.label = "Go"
+                self.call_from_thread(on_error)
+
+        thread = threading.Thread(target=do_download, daemon=True)
+        thread.start()
+
+    def action_load_video(self):
+        file_input = self.query_one("#file-input", Input)
+        path_str = _clean_path(file_input.value.strip())
+
+        if not path_str:
+            return
+
+        # Handle URLs — download to tmp first
+        if path_str.startswith(("http://", "https://")):
+            self._download_and_load(path_str)
             return
 
         path = Path(path_str).expanduser().resolve()
@@ -1183,7 +1323,12 @@ class VidToolsApp(App):
 
                     self.write_log(f"[green]Loaded:[/green] {info.dimensions}, {info.size_mb:.1f} MB")
                     load_btn.disabled = False
-                    load_btn.label = "Load"
+                    load_btn.label = "Go ▶"
+
+                    # Auto-compress if triggered by GIF URL paste
+                    if self._auto_compress_after_load:
+                        self._auto_compress_after_load = False
+                        self.action_compress()
 
                 self.call_from_thread(finish)
 
@@ -1191,7 +1336,7 @@ class VidToolsApp(App):
                 def on_error():
                     self.write_log(f"[red]Error:[/red] {e}")
                     load_btn.disabled = False
-                    load_btn.label = "Load"
+                    load_btn.label = "Go"
                 self.call_from_thread(on_error)
 
         thread = threading.Thread(target=do_probe, daemon=True)
@@ -1227,8 +1372,38 @@ class VidToolsApp(App):
 
         # Log what we're doing
         if special_format == "gif":
+            # Skip conversion if input is already a small GIF (< 1MB) and no trimming
+            is_already_gif = self.video_info.path.suffix.lower() == ".gif"
+            is_small = self.video_info.size_mb < 1.0
+            has_trim = start_time is not None or end_time is not None
+            if is_already_gif and is_small and not has_trim:
+                # Pass through — just copy to output dir
+                import shutil
+                from clipper.compress import _resolve_output_dir, CompressionResult, Preset
+                dest_dir = _resolve_output_dir(self.video_info.path)
+                dest = dest_dir / self.video_info.path.name
+                if dest.resolve() != self.video_info.path.resolve():
+                    shutil.copy2(self.video_info.path, dest)
+                self.write_log(f"[green]Already a GIF:[/green] {self.video_info.path.name} ({self.video_info.size_mb:.1f} MB)")
+                self.write_log(f"[dim]  Under 1 MB — copied as-is[/dim]")
+                progress_container.remove_class("active")
+                compress_btn.disabled = False
+                # Show result
+                output_panel = self.query_one("#output-panel", OutputPanel)
+                sz = dest.stat().st_size
+                output_panel.set_result(
+                    sz / (1024 * 1024), sz / (1024 * 1024), 0.0, dest, "gif"
+                )
+                self._last_output = dest
+                self.query_one("#share-btn", Button).disabled = False
+                return
+
+            # Show output filename
+            stem = self.video_info.path.stem
+            out_stem = re.sub(r'-gif(-\d+s?(-\d+s?)?)?$', '', stem, flags=re.IGNORECASE)
             self.write_log(f"[yellow]Converting to GIF:[/yellow] {self.video_info.path.name}{trim_info}")
-            self.write_log(f"[dim]  480px wide, 15fps, palette-optimized[/dim]")
+            out_width = min(480, self.video_info.width)
+            self.write_log(f"[dim]  → {out_stem}.gif · {out_width}px wide, 15fps, 128 colors[/dim]")
         elif special_format == "loop":
             self.write_log(f"[yellow]Creating loop:[/yellow] {self.video_info.path.name}{trim_info}")
             self.write_log(f"[dim]  50% scale, silent, iMessage-optimized[/dim]")
@@ -1286,12 +1461,13 @@ class VidToolsApp(App):
                         result.reduction_percent,
                         result.output_path,
                         format_name,
+                        kept_original=result.kept_original,
                     )
                     self.write_log(f"[green]Done![/green] {result.output_path}")
-                    if result.reduction_percent >= 0:
+                    if result.kept_original:
+                        self.write_log(f"[dim]Kept original — compressed was larger[/dim]")
+                    elif result.reduction_percent >= 0:
                         self.write_log(f"[green]Reduced:[/green] {result.reduction_percent:.1f}%")
-                    else:
-                        self.write_log(f"[yellow]Size:[/yellow] +{abs(result.reduction_percent):.1f}% (GIFs gonna GIF)")
                     compress_btn.disabled = False
                     # Enable share button
                     self._last_output = result.output_path
@@ -1352,6 +1528,7 @@ class VidToolsApp(App):
                 on_job_added=on_job_added,
                 on_job_updated=on_job_updated,
                 on_job_done=on_job_done,
+                delete_source=get_config().behavior.delete_source,
             )
             self.watcher.start()
 
@@ -1374,19 +1551,22 @@ class VidToolsApp(App):
         self.set_focus(None)
 
     def action_share(self):
-        """Copy output path to clipboard"""
+        """Reveal output file in Finder and copy path to clipboard"""
         if not self._last_output:
-            self.notify("Nothing to share yet", severity="warning")
+            self.notify("Nothing to reveal yet", severity="warning")
             return
 
         import subprocess
         path_str = str(self._last_output)
 
-        # Copy to clipboard using pbcopy (macOS)
+        # Reveal in Finder
+        subprocess.run(["open", "-R", path_str], check=True)
+
+        # Also copy path to clipboard
         subprocess.run(["pbcopy"], input=path_str.encode(), check=True)
 
-        self.write_log(f"[cyan]Copied to clipboard:[/cyan] {self._last_output.name}")
-        self.notify("Path copied! Ready to paste.", severity="information")
+        self.write_log(f"[cyan]Revealed:[/cyan] {self._last_output.name}")
+        self.notify("Opened in Finder (path copied)", severity="information")
 
     def action_copy_log(self):
         """Copy log contents to clipboard"""
@@ -1407,6 +1587,39 @@ class VidToolsApp(App):
         text = '\n'.join(plain_logs)
         subprocess.run(["pbcopy"], input=text.encode(), check=True)
         self.notify(f"Copied {len(self._log_history)} log lines!", severity="information")
+
+    def action_clear_input(self):
+        """Clear file input and reset state"""
+        file_input = self.query_one("#file-input", Input)
+        file_input.value = ""
+        self.video_info = None
+        self.selected_format = None
+        self.selected_preset = DEFAULT_PRESET
+
+        # Reset UI panels
+        info_panel = self.query_one("#info-panel", VideoInfoPanel)
+        info_panel.update_info(None, None)
+        output_panel = self.query_one("#output-panel", OutputPanel)
+        output_panel.clear()
+
+        # Reset buttons
+        compress_btn = self.query_one("#compress-btn", Button)
+        compress_btn.disabled = True
+        share_btn = self.query_one("#share-btn", Button)
+        share_btn.disabled = True
+
+        # Reset preset selector
+        select = self.query_one("#preset-select", Select)
+        select.value = "social"
+        trim_row = self.query_one("#trim-row")
+        trim_row.remove_class("active")
+
+        # Reset progress
+        progress_container = self.query_one("#progress-container")
+        progress_container.remove_class("active")
+
+        self._last_output = None
+        self.write_log("[dim]Cleared[/dim]")
 
     def action_clear_log(self):
         log = self.query_one("#log", StatusLog)
